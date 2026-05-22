@@ -2,7 +2,7 @@
 
 A physical recreation of W. Ross Ashby's homeostat (1947), running on an ESP32-S3 Supermini with four WS2812 LED strips.
 
-Built by Sui and Thomas (tman) for educational and illustrative purposes -- to make Ashby's ideas about ultrastability visible, tangible, and alive.
+Built by Sui and Thomas for educational and illustrative purposes -- to make Ashby's ideas about ultrastability visible, tangible, and alive.
 
 ---
 
@@ -140,7 +140,7 @@ const unsigned long RECONFIG_FLASH_MS         = 300;
 ## Credits
 
 Concept: W. Ross Ashby (1947)
-Hardware concept and theoretical grounding: Thomas
+Theoretical grounding: Thomas
 Build, firmware, and tuning: Sui
 Code assistance: Claude (Anthropic)
 
