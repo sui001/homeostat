@@ -6,6 +6,12 @@ Built by Sui and Thomas for educational and illustrative purposes -- to make Ash
 
 ---
 
+## Visualiser
+
+[Live demo](https://sui001.github.io/homeostat/visualiser/)
+
+---
+
 ## What is the homeostat?
 
 In 1947, the British psychiatrist W. Ross Ashby built a machine he called the homeostat. It was one of the first devices designed to model biological homeostasis -- the capacity of living systems to maintain stability in the face of disturbance.
