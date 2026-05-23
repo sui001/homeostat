@@ -14,7 +14,7 @@ Built by Sui and Thomas for educational and illustrative purposes -- to make Ash
 
 ## What is the homeostat?
 
-In 1947, the British psychiatrist W. Ross Ashby built a machine he called the homeostat. It was one of the first devices designed to model biological homeostasis -- the capacity of living systems to maintain stability in the face of disturbance.
+In 1947, the British psychiatrist W. Ross Ashby built a machine he called the homeostat. It was one of the first devices designed to model biological homeostasis - the capacity of living systems to maintain stability in the face of disturbance.
 
 What made it remarkable was what it did *not* have. No goal. No memory. No intelligence. Just four coupled units influencing each other through a matrix of electrical connections, and a mechanism (the uniselector) that randomly reconfigured those connections whenever the system went out of range.
 
@@ -54,14 +54,14 @@ A momentary button press delivers a random-strength knock to x[0]. This propagat
 
 | Visual | Meaning |
 |---|---|
-| 4 green LEDs per strip | x[i] at rest, near zero -- healthy |
-| LEDs dropping out | x[i] moving away from zero -- stressed |
+| 4 green LEDs per strip | x[i] at rest, near zero - healthy |
+| LEDs dropping out | x[i] moving away from zero - stressed |
 | Red | x[i] positive |
 | Blue | x[i] negative |
-| Yellow flash (all 16) | Button knocked -- disturbance entering |
+| Yellow flash (all 16) | Button knocked - disturbance entering |
 | White flash (one strip) | That unit just reconfigured its connections |
 
-Open Serial Plotter at 115200 to watch all four x variables as live scrolling lines -- the closest thing to Ashby's original needles.
+Open Serial Plotter at 115200 to watch all four x variables as live scrolling lines - the closest thing to Ashby's original needles.
 
 ---
 
@@ -88,7 +88,7 @@ Open Serial Plotter at 115200 to watch all four x variables as live scrolling li
 
 ## Libraries
 
-- **FastLED** -- via Arduino Library Manager
+- **FastLED** - via Arduino Library Manager
 
 ## Arduino IDE settings
 
@@ -110,7 +110,7 @@ Open Serial Plotter at 115200 to watch all four x variables as live scrolling li
 ## Tuning parameters
 
 ```cpp
-const float BOUND                    = 1.0f;   // viable range -- triggers S2
+const float BOUND                    = 1.0f;   // viable range - triggers S2
 const float DT                       = 0.06f;  // integration timestep
 const float K_MAX                    = 0.35f;  // off-diagonal coupling strength
 const float DIAGONAL_DAMPING         = 0.15f;  // sets self-damping range
@@ -135,11 +135,11 @@ const unsigned long RECONFIG_FLASH_MS         = 300;
 
 ## Notes
 
-- WS2812 strips on this hardware are GRB not RGB -- FastLED configured accordingly
+- WS2812 strips on this hardware are GRB not RGB - FastLED configured accordingly
 - Display magnitude scaling (0.3f in renderState) is separate from physics BOUND -- do not conflate
 - No LEAK -- system oscillates freely, S2 handles instability not artificial damping
-- Diagonal k[i][i] randomised within a range so some organisations are genuinely harder to stabilise -- intentional and faithful to Ashby
-- x[i] is not reset to zero on reconfiguration -- the system must earn its recovery
+- Diagonal k[i][i] randomised within a range so some organisations are genuinely harder to stabilise - intentional and faithful to Ashby
+- x[i] is not reset to zero on reconfiguration - the system must earn its recovery
 
 ---
 
