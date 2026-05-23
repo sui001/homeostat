@@ -41,4 +41,4 @@ The room finds equilibrium, or it doesn't.
 
 ---
 
-*Homeostat II is part of an ongoing practice-based research project. Built in collaboration with T. Zafiropulos and Claude (Anthropic).*
+*Homeostat II is part of an ongoing practice-based research project. Built in collaboration with Thomas McE. and Claude (Anthropic).*
