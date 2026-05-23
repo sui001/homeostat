@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Homeostat — Ashby 1947</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    body { margin: 0; background: #080808; }
+    * { box-sizing: border-box; }
+    button {
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: #999;
+      padding: 8px 20px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: all 0.12s;
+    }
+    button:hover { background: rgba(255,255,255,0.1); color: #ddd; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const N = 4;
+    const DT = 0.06;
+    const K_MAX = 0.35;
+    const DIAGONAL_DAMPING = 0.08;
+    const BOUND = 1.0;
+    const CLAMP = 5.0;
+    const MIN_RECONFIG_INTERVAL = 200;
+    const TOTAL_CELLS = 16;
+    const UNIT_COLORS = ["#ff4444", "#44ffee", "#44ff88", "#ffee44"];
+
+    function randomK() { return (Math.random() * 2 - 1) * K_MAX; }
+    function initK() {
+      return Array.from({ length: N }, (_, i) =>
+        Array.from({ length: N }, (_, j) =>
+          i === j ? -DIAGONAL_DAMPING : randomK()
+        )
+      );
+    }
+    function randomOrder() {
+      const arr = Array.from({ length: TOTAL_CELLS }, (_, i) => i);
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    // Shared simulation hook
+    function useSimulation() {
+      const [x, setX] = useState([0.1, -0.2, 0.15, -0.1]);
+      const [k, setK] = useState(initK);
+      const [orders, setOrders] = useState(() => Array.from({ length: N }, randomOrder));
+      const [knocked, setKnocked] = useState(false);
+      const [reconfig, setReconfig] = useState(null);
+      const [reconfigCount, setReconfigCount] = useState(0);
+      const [frameCount, setFrameCount] = useState(0);
+      const [history, setHistory] = useState(() => Array.from({ length: 200 }, () => [0,0,0,0]));
+
+      const xRef = useRef(x);
+      const kRef = useRef(k);
+      const ordersRef = useRef(orders);
+      const lastReconfigRef = useRef(0);
+      const frameRef = useRef(null);
+
+      xRef.current = x;
+      kRef.current = k;
+      ordersRef.current = orders;
+
+      const knock = useCallback(() => {
+        const strength = 2 + Math.random() * 3;
+        const sign = Math.random() > 0.5 ? 1 : -1;
+        setX(prev => { const n = [...prev]; n[0] = clamp(n[0] + strength * sign, -CLAMP, CLAMP); return n; });
+        setKnocked(true);
+        setTimeout(() => setKnocked(false), 400);
+      }, []);
+
+      const reset = useCallback(() => {
+        setX([0.1,-0.2,0.15,-0.1]);
+        setK(initK());
+        setOrders(Array.from({ length: N }, randomOrder));
+        setReconfigCount(0);
+        setHistory(Array.from({ length: 200 }, () => [0,0,0,0]));
+      }, []);
+
+      useEffect(() => {
+        const loop = () => {
+          const cx = [...xRef.current];
+          const ck = kRef.current;
+          const nx = cx.map((v, i) => {
+            let dx = 0;
+            for (let j = 0; j < N; j++) dx += ck[i][j] * cx[j];
+            return clamp(v + dx * DT, -CLAMP, CLAMP);
+          });
+          const now = Date.now();
+          let newK = ck, newOrders = ordersRef.current, ru = null;
+          for (let i = 0; i < N; i++) {
+            if (Math.abs(nx[i]) > BOUND && now - lastReconfigRef.current > MIN_RECONFIG_INTERVAL) {
+              newK = ck.map((row, ri) => ri === i ? row.map((v, ci) => ci === i ? -DIAGONAL_DAMPING : randomK()) : row);
+              newOrders = newOrders.map((o, oi) => oi === i ? randomOrder() : o);
+              lastReconfigRef.current = now;
+              ru = i;
+              break;
+            }
+          }
+          if (ru !== null) {
+            setK(newK); kRef.current = newK;
+            setOrders(newOrders); ordersRef.current = newOrders;
+            setReconfig(ru);
+            setReconfigCount(c => c + 1);
+            setTimeout(() => setReconfig(null), 200);
+          }
+          setX(nx);
+          setHistory(prev => [...prev.slice(1), [...nx]]);
+          setFrameCount(f => f + 1);
+          frameRef.current = requestAnimationFrame(loop);
+        };
+        frameRef.current = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(frameRef.current);
+      }, []);
+
+      return { x, k, orders, knocked, reconfig, reconfigCount, frameCount, history, knock, reset };
+    }
+
+    function Grid({ ui, x, knocked, reconfig, order, frameCount, compact }) {
+      const val = x[ui];
+      const norm = Math.min(Math.abs(val) / BOUND, 1.0);
+      const litCount = Math.round((1 - norm) * TOTAL_CELLS);
+      const t = frameCount * 0.04;
+      const [cellPhase] = useState(() => Array.from({ length: TOTAL_CELLS }, () => Math.random() * Math.PI * 2));
+      const [ghostPhase] = useState(() => Array.from({ length: TOTAL_CELLS }, () => Math.random() * Math.PI * 2));
+      const isReconfig = reconfig === ui;
+      const isKnocked = knocked && ui === 0;
+
+      return (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(8, 1fr)",
+          gridTemplateRows: "repeat(2, 1fr)",
+          gap: compact ? 4 : 6,
+        }}>
+          {Array.from({ length: TOTAL_CELLS }, (_, i) => {
+            const rank = order.indexOf(i);
+            const isLit = rank < litCount;
+            const phase = cellPhase[i];
+            const gPhase = ghostPhase[i];
+            const breathe = Math.sin(t + phase) * 0.5 + 0.5;
+            const breathe2 = Math.sin(t * 1.3 + phase * 1.7) * 0.3 + 0.7;
+            const ghost = Math.sin(t * 0.5 + gPhase) * 0.5 + 0.5;
+            const twinkle = Math.sin(t * 0.8 + gPhase * 2.3) * 0.5 + 0.5;
+
+            let bg, shadow, opacity;
+
+            if (!isLit) {
+              // slow white twinkle for out-of-bounds cells
+              const ghostA = 0.15 + ghost * 0.4 + twinkle * 0.25;
+              bg = `rgba(255,255,255,${ghostA})`;
+              shadow = `0 0 ${4 + twinkle * 12}px rgba(255,255,255,${ghostA * 3})`;
+              opacity = 1;
+            } else if (isKnocked) {
+              const b = 45 + breathe * 15;
+              bg = `hsl(50, 90%, ${b}%)`;
+              shadow = `0 0 ${6 + breathe * 8}px hsl(50,90%,55%)`;
+              opacity = 0.6 + breathe * 0.35;
+            } else if (isReconfig) {
+              bg = `hsl(60, 20%, ${50 + breathe * 20}%)`;
+              shadow = `0 0 8px rgba(255,255,255,0.3)`;
+              opacity = 0.7 + breathe * 0.3;
+            } else {
+              const cellHueDrift = ((i * 7) % 16 - 8) * 1.5;
+              if (norm < 0.08) {
+                const h = 112 + cellHueDrift;
+                const s = 45 + breathe * 25;
+                const l = 22 + breathe2 * 18;
+                bg = `hsl(${h}, ${s}%, ${l}%)`;
+                shadow = `0 0 ${4 + breathe * 7}px hsl(${h}, ${s}%, ${l + 10}%)`;
+                opacity = 0.4 + breathe * 0.5;
+              } else if (val > 0) {
+                const h = 8 + cellHueDrift * 0.5;
+                const s = 70 + breathe * 25;
+                const l = 28 + norm * 15 + breathe2 * 12;
+                bg = `hsl(${h}, ${s}%, ${l}%)`;
+                shadow = `0 0 ${5 + norm * 10 + breathe * 6}px hsl(${h}, ${s}%, ${l + 8}%)`;
+                opacity = 0.3 + norm * 0.4 + breathe * 0.3;
+              } else {
+                const h = 205 + cellHueDrift;
+                const s = 70 + breathe * 25;
+                const l = 28 + norm * 15 + breathe2 * 12;
+                bg = `hsl(${h}, ${s}%, ${l}%)`;
+                shadow = `0 0 ${5 + norm * 10 + breathe * 6}px hsl(${h}, ${s}%, ${l + 8}%)`;
+                opacity = 0.3 + norm * 0.4 + breathe * 0.3;
+              }
+            }
+
+            return (
+              <div key={i} style={{
+                aspectRatio: "1",
+                borderRadius: 3,
+                background: bg,
+                boxShadow: shadow,
+                opacity,
+                transition: isLit ? "background 0.1s, opacity 0.1s" : "background 1.5s, opacity 1.5s",
+              }} />
+            );
+          })}
+        </div>
+      );
+    }
+
+    function Waveform({ history, highlight, height }) {
+      const canvasRef = useRef(null);
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const w = canvas.width, h = canvas.height;
+        ctx.fillStyle = "#080808";
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = "rgba(255,255,255,0.05)";
+        ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+        ctx.strokeStyle = "rgba(255,255,255,0.04)";
+        ctx.setLineDash([2, 4]);
+        const boundY = (h/2) - (BOUND / (BOUND * 1.5)) * (h/2 - 4);
+        ctx.beginPath(); ctx.moveTo(0, boundY); ctx.lineTo(w, boundY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, h - boundY); ctx.lineTo(w, h - boundY); ctx.stroke();
+        ctx.setLineDash([]);
+        const sw = w / history.length;
+        history.forEach((frame, fi) => {
+          const vals = highlight !== null ? [frame[highlight]] : frame;
+          const indices = highlight !== null ? [highlight] : [0,1,2,3];
+          vals.forEach((v, ii) => {
+            const ui = indices[ii];
+            const py = h/2 - (v / (BOUND * 1.5)) * (h/2 - 4);
+            const n = Math.min(Math.abs(v) / BOUND, 1.0);
+            const base = UNIT_COLORS[ui];
+            ctx.fillStyle = highlight !== null
+              ? (Math.abs(v) < 0.05 ? `rgba(68,255,136,${0.4+n*0.5})` : v > 0 ? `rgba(255,68,68,${0.4+n*0.5})` : `rgba(68,170,255,${0.4+n*0.5})`)
+              : base + Math.round((0.3 + n * 0.6) * 255).toString(16).padStart(2,'0');
+            ctx.fillRect(fi * sw, py, sw + 1, highlight !== null ? 2 : 1.5);
+          });
+        });
+      });
+      return (
+        <canvas ref={canvasRef} width={600} height={height || 60}
+          style={{ width: "100%", height: height || 60, display: "block", background: "#080808" }} />
+      );
+    }
+
+    // Single unit zoomed view
+    function SingleView({ ui, sim, onBack }) {
+      const { x, orders, knocked, reconfig, frameCount, history } = sim;
+      const val = x[ui];
+      const norm = Math.min(Math.abs(val) / BOUND, 1.0);
+      const displayVal = Math.abs(val) > 99 ? (val > 0 ? ">99" : "<-99") : val.toFixed(3);
+      const isReconfig = reconfig === ui;
+
+      return (
+        <div style={{
+          background: "#080808", minHeight: "100vh",
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+          color: "#e0e0e0", padding: 20,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{ width: "100%", maxWidth: 500 }}>
+            <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div>
+                <div style={{ fontSize: 8, letterSpacing: "0.3em", color: "#2a2a2a", marginBottom: 2 }}>ASHBY 1947</div>
+                <div style={{ fontSize: 18, fontWeight: 300, letterSpacing: "0.06em" }}>HOMEOSTAT</div>
+              </div>
+              <button onClick={onBack} style={{ fontSize: 9 }}>← all units</button>
+            </div>
+
+            <div style={{
+              background: "#0c0c0c",
+              border: `1px solid ${isReconfig ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.05)"}`,
+              padding: 20, marginBottom: 14, transition: "border-color 0.2s",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
+                <div style={{ fontSize: 9, letterSpacing: "0.2em", color: "#333" }}>x[{ui}]</div>
+                <div style={{ fontSize: 28, fontWeight: 300, color: isReconfig ? "#fff" : norm < 0.1 ? "#44ff88" : val > 0 ? "#ff4444" : "#44aaff" }}>
+                  {displayVal}
+                </div>
+              </div>
+              <Grid ui={ui} x={x} knocked={knocked} reconfig={reconfig} order={orders[ui]} frameCount={frameCount} />
+            </div>
+
+            <div style={{ background: "#0c0c0c", border: "1px solid rgba(255,255,255,0.04)", padding: "10px 12px", marginBottom: 14 }}>
+              <div style={{ fontSize: 8, color: "#222", letterSpacing: "0.2em", marginBottom: 6 }}>x[{ui}]</div>
+              <Waveform history={history} highlight={ui} height={60} />
+            </div>
+
+            <div style={{ background: "#0c0c0c", border: "1px solid rgba(255,255,255,0.04)", padding: "10px 12px" }}>
+              <div style={{ fontSize: 8, color: "#222", letterSpacing: "0.2em", marginBottom: 6 }}>all units</div>
+              <Waveform history={history} highlight={null} height={50} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function UnitPanel({ ui, x, knocked, reconfig, order, frameCount, history, onClick }) {
+      const val = x[ui];
+      const norm = Math.min(Math.abs(val) / BOUND, 1.0);
+      const displayVal = Math.abs(val) > 99 ? (val > 0 ? ">99" : "<-99") : val.toFixed(3);
+      const isReconfig = reconfig === ui;
+      const isKnocked = knocked && ui === 0;
+
+      return (
+        <div
+          onClick={onClick}
+          style={{
+            background: "#0c0c0c",
+            border: `1px solid ${isReconfig ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.05)"}`,
+            padding: 14, transition: "border-color 0.2s",
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+            <div style={{ fontSize: 8, letterSpacing: "0.25em", color: "#2a2a2a" }}>x[{ui}]</div>
+            <div style={{ fontSize: 15, fontWeight: 300, color: isReconfig ? "#ffffff" : isKnocked ? "#ffee44" : norm < 0.1 ? "#44ff88" : val > 0 ? "#ff4444" : "#44aaff" }}>
+              {displayVal}
+            </div>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <Grid ui={ui} x={x} knocked={knocked} reconfig={reconfig} order={order} frameCount={frameCount} compact />
+          </div>
+          <canvas
+            ref={el => {
+              if (!el) return;
+              const ctx = el.getContext("2d");
+              const w = el.width, h = el.height;
+              ctx.fillStyle = "#080808";
+              ctx.fillRect(0, 0, w, h);
+              ctx.strokeStyle = "rgba(255,255,255,0.04)";
+              ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+              const sw = w / history.length;
+              history.forEach((frame, fi) => {
+                const v = frame[ui];
+                const py = h/2 - (v / (BOUND * 1.5)) * (h/2 - 3);
+                const n = Math.min(Math.abs(v) / BOUND, 1.0);
+                ctx.fillStyle = Math.abs(v) < 0.05 ? `rgba(68,255,136,${0.4+n*0.5})` : v > 0 ? `rgba(255,68,68,${0.4+n*0.5})` : `rgba(68,170,255,${0.4+n*0.5})`;
+                ctx.fillRect(fi * sw, py, sw + 1, 1.5);
+              });
+            }}
+            width={300} height={35}
+            style={{ width: "100%", height: 35, display: "block", background: "#080808" }}
+          />
+        </div>
+      );
+    }
+
+    function FourView({ sim, onZoom }) {
+      const { x, k, orders, knocked, reconfig, reconfigCount, frameCount, history, knock, reset } = sim;
+
+      return (
+        <div style={{
+          background: "#080808", minHeight: "100vh",
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+          color: "#e0e0e0", padding: 20,
+        }}>
+          <style>{`@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap');`}</style>
+          <div style={{ maxWidth: 860, margin: "0 auto" }}>
+            <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div>
+                <div style={{ fontSize: 8, letterSpacing: "0.3em", color: "#2a2a2a", marginBottom: 2 }}>ASHBY 1947</div>
+                <div style={{ fontSize: 18, fontWeight: 300, letterSpacing: "0.06em" }}>HOMEOSTAT</div>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <div style={{ fontSize: 9, color: "#2a2a2a" }}>S2 <span style={{ color: "#444" }}>{reconfigCount}</span></div>
+                <button onClick={knock} style={{ borderColor: "rgba(255,220,50,0.3)", color: "#ffee44" }}>⚡ perturbate</button>
+                <button onClick={reset}>↺ reset</button>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              {[0,1,2,3].map(ui => (
+                <UnitPanel
+                  key={ui}
+                  ui={ui}
+                  x={x}
+                  knocked={knocked}
+                  reconfig={reconfig}
+                  order={orders[ui]}
+                  frameCount={frameCount}
+                  history={history}
+                  onClick={() => onZoom(ui)}
+                />
+              ))}
+            </div>
+
+            {/* Combined 4-wave plotter */}
+            <div style={{ background: "#0c0c0c", border: "1px solid rgba(255,255,255,0.04)", padding: "10px 14px" }}>
+              <div style={{ fontSize: 8, color: "#222", letterSpacing: "0.2em", marginBottom: 6 }}>all units</div>
+              <Waveform history={history} highlight={null} height={60} />
+              <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+                {["x[0]","x[1]","x[2]","x[3]"].map((label, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: "#333" }}>
+                    <div style={{ width: 12, height: 2, background: UNIT_COLORS[i] }} />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const sim = useSimulation();
+      const [zoom, setZoom] = useState(null);
+
+      if (zoom !== null) {
+        return <SingleView ui={zoom} sim={sim} onBack={() => setZoom(null)} />;
+      }
+      return <FourView sim={sim} onZoom={setZoom} />;
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
