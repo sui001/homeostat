@@ -9,7 +9,7 @@ Built by Sui and Thomas for educational and illustrative purposes - to make Ashb
 
 ## Visualiser
 
-[Live demo](https://sui001.github.io/homeostat/visualiser/) [![Homeostat II -- Distributed Units](distributed/visualiser.png)]([distributed/homeostat_final.html](https://sui001.github.io/homeostat/visualiser/)
+[![Homeostat II -- Distributed Units](distributed/visualiser.png)](https://sui001.github.io/homeostat/visualiser/)
 
 ---
 
