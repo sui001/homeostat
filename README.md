@@ -7,7 +7,7 @@ Built by Sui and Thomas for educational and illustrative purposes - to make Ashb
 ---
 
 
-## Visualiser
+## Live Demo - Visualiser
 
 [![Homeostat II -- Distributed Units](distributed/visualiser.png)](https://sui001.github.io/homeostat/visualiser/)
 
