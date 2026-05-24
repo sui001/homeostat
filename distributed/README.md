@@ -2,7 +2,7 @@
 
 A room-scale physical recreation of W. Ross Ashby's homeostat (1947).
 
-Four equation nodes in the corners of a room. One sensor node watching for motion. Five ESP32-S3 Superminis talking to each other via ESP-NOW. Each corner is a unit of the homeostat -- owning one state variable, one row of the coupling matrix, making its own decision about when it is out of viable range.
+Four equation nodes in the corners of a room. One sensor node watching for motion. Five ESP32-S3 Superminis talking to each other via ESP-NOW. Each corner is a unit of the homeostat - owning one state variable, one row of the coupling matrix, making its own decision about when it is out of viable range.
 
 The room finds equilibrium, or it doesn't.
 
@@ -14,7 +14,7 @@ The room finds equilibrium, or it doesn't.
 |---|---|
 | `homeostat_equation_node.ino` | Flash to each corner node. Change `DEVICE_ID` (1-4) only. |
 | `homeostat_sensor_node.ino` | Flash to the sensor node. Never change `DEVICE_ID` (always 0). |
-| `homeostat_distributed_context.md` | Full technical context -- wiring, parameters, known issues, conceptual notes. |
+| `homeostat_distributed_context.md` | Full technical context - wiring, parameters, known issues, conceptual notes. |
 
 ---
 
@@ -24,7 +24,7 @@ The room finds equilibrium, or it doesn't.
 2. Flash `homeostat_sensor_node.ino` to one Supermini (PIR on GPIO 6)
 3. Place equation nodes in corners
 4. Power up -- nodes boot staggered, find each other via ESP-NOW broadcast
-5. Walk in front of the PIR -- the room responds
+5. Walk in front of the PIR - the room responds
 
 ## Hardware
 
