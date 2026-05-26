@@ -145,10 +145,10 @@ const unsigned long RECONFIG_FLASH_MS         = 300;
 
 ## Credits
 
-Concept: W. Ross Ashby (1947)
-Theoretical grounding: Thomas
-Build, firmware, and tuning: Sui
-Code assistance: Claude (Anthropic)
+Concept: W. Ross Ashby (1947).
+Theoretical grounding: Thomas.
+Build, firmware, and tuning: Sui.
+Code assistance: Claude (Anthropic).
 
 ---
 
