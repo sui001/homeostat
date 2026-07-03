@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<!--
+  PROJECT: Homeostat -- "The Glade" -- Multi-Group Web Visualiser
+  VERSION: v1.0.0
+  Reconstruction of the multi-group visualiser: variable number of groups
+  (1-4), variable nodes per group (4-13), inter-group coupling, per-group
+  and per-node mute, Web Audio click-mode/tone-mode audio, knock + S2 counter.
+  Each group is an independent Ashby homeostat (own k matrix, own S2/
+  uniselector per node); inter-group coupling pulls each node gently toward
+  the mean state of the *other* groups, scaled by the inter-group slider.
+  No persistence between reloads -- vanilla JS + canvas, no build step.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Homeostat — The Glade</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap');
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #080808;
+    color: #e0e0e0;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    padding: 20px;
+  }
+  button, select {
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    color: #999;
+    padding: 7px 16px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: all 0.12s;
+  }
+  button:hover { background: rgba(255,255,255,0.1); color: #ddd; }
+  select { padding: 5px 8px; text-transform: none; }
+  input[type=range] { accent-color: #777; vertical-align: middle; }
+
+  .wrap { max-width: 900px; margin: 0 auto; }
+  .header { margin-bottom: 18px; display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+  .kicker { font-size: 8px; letter-spacing: 0.3em; color: #2a2a2a; margin-bottom: 2px; }
+  .title { font-size: 18px; font-weight: 300; letter-spacing: 0.06em; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 18px;
+    background: #0c0c0c; border: 1px solid rgba(255,255,255,0.05); padding: 12px 16px; }
+  .ctl { display: flex; flex-direction: column; gap: 4px; }
+  .ctl-label { font-size: 8px; letter-spacing: 0.15em; color: #444; text-transform: uppercase; }
+  .ctl-row { display: flex; align-items: center; gap: 6px; }
+  .ctl-val { font-size: 10px; color: #888; min-width: 24px; }
+  .spacer { flex: 1 1 auto; }
+  .s2-stat { font-size: 9px; color: #333; }
+  .s2-stat span { color: #666; }
+
+  .groups { display: flex; flex-direction: column; gap: 12px; }
+  .group-panel { background: #0c0c0c; border: 1px solid rgba(255,255,255,0.05); padding: 14px; transition: border-color 0.2s; }
+  .group-panel.reconfig { border-color: rgba(255,255,255,0.18); }
+  .group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .group-name { font-size: 11px; letter-spacing: 0.2em; font-weight: 500; }
+  .group-mute { font-size: 8px; padding: 4px 10px; }
+  .group-mute.muted { color: #444; border-color: rgba(255,255,255,0.04); }
+
+  .nodes-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .node { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .node-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; color: #fff; cursor: pointer;
+    transition: opacity 0.15s, box-shadow 0.1s;
+  }
+  .node-dot.muted { opacity: 0.18; }
+  .node-idx { font-size: 8px; color: #333; }
+
+  .group-wave { width: 100%; height: 46px; display: block; background: #080808; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <div class="kicker">ASHBY 1947 — MULTI-GROUP</div>
+      <div class="title">THE GLADE</div>
+    </div>
+    <div class="s2-stat">S2 fires <span id="s2total">0</span></div>
+  </div>
+
+  <div class="controls">
+    <div class="ctl">
+      <div class="ctl-label">Groups</div>
+      <select id="ctl-groups">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <div class="ctl-label">Nodes / group</div>
+      <div class="ctl-row">
+        <input type="range" id="ctl-nodes" min="4" max="13" step="1" value="4" style="width:100px;">
+        <span class="ctl-val" id="ctl-nodes-val">4</span>
+      </div>
+    </div>
+    <div class="ctl">
+      <div class="ctl-label">Inter-group coupling</div>
+      <div class="ctl-row">
+        <input type="range" id="ctl-igc" min="0" max="1" step="0.05" value="0.3" style="width:100px;">
+        <span class="ctl-val" id="ctl-igc-val">0.30</span>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button id="ctl-knock" style="border-color:rgba(255,220,50,0.3); color:#ffee44;">⚡ knock</button>
+    <button id="ctl-audio">🔇 sound off</button>
+    <button id="ctl-reset">↺ reset</button>
+  </div>
+
+  <div class="groups" id="groups"></div>
+</div>
+
+<script>
+(function () {
+  // ---- constants ----
+  const BOUND = 1.0, DT = 0.06, K_MAX = 0.5, DAMP = 0.08, HIST = 140;
+  const PERTURB_MIN = 5, PERTURB_MAX = 10, MIN_RECONFIG_MS = 200;
+  const GROUP_COLORS = ['#ff4444', '#44aaff', '#44ff88', '#ffee44'];
+  const GROUP_NAMES  = ['A', 'B', 'C', 'D'];
+  const BASE_FREQ = 160, FREQ_STEP = 24, FREQ_MAX = 1600;
+  const CLICK_MIN_INTERVAL = 90, CLICK_MAX_INTERVAL = 900;
+
+  function rnd(lo, hi) { return lo + Math.random() * (hi - lo); }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // ---- state ----
+  let nGroups = 2, nodesPerGroup = 4, igc = 0.3;
+  let groups = [];
+  let s2Total = 0;
+  let audioOn = false;
+  let audioCtx = null, masterGain = null;
+  let lastClick = {}; // "gid-i" -> ms
+
+  class Group {
+    constructor(id, n) {
+      this.id = id;
+      this.n = n;
+      this.x = Float32Array.from({ length: n }, () => rnd(-0.3, 0.3));
+      this.k = Array.from({ length: n }, (_, i) =>
+        Array.from({ length: n }, (_, j) => (i === j ? -rnd(DAMP * 0.5, DAMP) : rnd(-K_MAX, K_MAX)))
+      );
+      this.muted = false;
+      this.nodeMuted = new Array(n).fill(false);
+      this.lastReconfig = 0;
+      this.reconfigNode = null;
+      this.reconfigUntil = 0;
+      this.knockedNode = null;
+      this.knockedUntil = 0;
+      this.hist = []; // array of {t, mean}
+    }
+    mean() {
+      let s = 0;
+      for (let i = 0; i < this.n; i++) s += this.x[i];
+      return s / this.n;
+    }
+    step(otherMean) {
+      const nx = new Float32Array(this.n);
+      for (let i = 0; i < this.n; i++) {
+        let dx = 0;
+        for (let j = 0; j < this.n; j++) dx += this.k[i][j] * this.x[j];
+        dx += igc * (otherMean - this.x[i]);
+        nx[i] = clamp(this.x[i] + dx * DT, -5, 5);
+      }
+      const now = performance.now();
+      if (now - this.lastReconfig > MIN_RECONFIG_MS) {
+        for (let i = 0; i < this.n; i++) {
+          if (Math.abs(nx[i]) > BOUND) {
+            for (let j = 0; j < this.n; j++) {
+              this.k[i][j] = i === j ? -rnd(DAMP * 0.1, DAMP) : rnd(-K_MAX, K_MAX);
+            }
+            this.lastReconfig = now;
+            this.reconfigNode = i;
+            this.reconfigUntil = now + 220;
+            s2Total++;
+            document.getElementById('s2total').textContent = s2Total;
+            break;
+          }
+        }
+      }
+      this.x = nx;
+      this.hist.push(this.mean());
+      if (this.hist.length > HIST) this.hist.shift();
+    }
+    knock() {
+      const i = Math.floor(Math.random() * this.n);
+      const strength = rnd(PERTURB_MIN, PERTURB_MAX) * 0.3;
+      const sign = Math.random() > 0.5 ? 1 : -1;
+      this.x[i] = clamp(this.x[i] + strength * sign, -5, 5);
+      this.knockedNode = i;
+      this.knockedUntil = performance.now() + 300;
+      fireBurst(0.6, 0.35, 0.15);
+    }
+  }
+
+  function buildGroups() {
+    groups = [];
+    for (let g = 0; g < nGroups; g++) groups.push(new Group(g, nodesPerGroup));
+    s2Total = 0;
+    document.getElementById('s2total').textContent = 0;
+    renderDOM();
+  }
+
+  // ---- audio ----
+  function ensureAudio() {
+    if (audioCtx) return audioCtx;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.28;
+    masterGain.connect(audioCtx.destination);
+    return audioCtx;
+  }
+
+  function fireClick(freq, strength) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(masterGain);
+    const now = audioCtx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.2 + strength * 0.3, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04 + strength * 0.02);
+    osc.start(now);
+    osc.stop(now + 0.08);
+  }
+
+  function fireBurst(freqMul, gainAmt, dur) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = 660 * freqMul;
+    osc.connect(gain);
+    gain.connect(masterGain);
+    const now = audioCtx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(gainAmt, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  }
+
+  function updateAudio() {
+    if (!audioOn || !audioCtx) return;
+    const now = performance.now();
+    groups.forEach((grp, gid) => {
+      if (grp.muted) return;
+      for (let i = 0; i < grp.n; i++) {
+        if (grp.nodeMuted[i]) continue;
+        const norm = Math.min(Math.abs(grp.x[i]) / BOUND, 1.5);
+        if (norm <= 0.03) continue;
+        const key = gid + '-' + i;
+        const last = lastClick[key] || 0;
+        const interval = CLICK_MAX_INTERVAL - norm * (CLICK_MAX_INTERVAL - CLICK_MIN_INTERVAL);
+        if (now - last > interval) {
+          const freqIdx = gid * nodesPerGroup + i;
+          const freq = Math.min(BASE_FREQ + freqIdx * FREQ_STEP, FREQ_MAX);
+          fireClick(freq, norm);
+          lastClick[key] = now;
+        }
+      }
+      if (grp.reconfigNode !== null && performance.now() < grp.reconfigUntil + 5 && performance.now() > grp.reconfigUntil - 30) {
+        fireBurst(1.8, 0.25, 0.1);
+      }
+    });
+  }
+
+  // ---- DOM ----
+  const groupsEl = document.getElementById('groups');
+
+  function renderDOM() {
+    groupsEl.innerHTML = '';
+    groups.forEach((grp, gid) => {
+      const panel = document.createElement('div');
+      panel.className = 'group-panel';
+      panel.id = 'panel-' + gid;
+
+      const head = document.createElement('div');
+      head.className = 'group-head';
+      const name = document.createElement('div');
+      name.className = 'group-name';
+      name.style.color = GROUP_COLORS[gid % GROUP_COLORS.length];
+      name.textContent = 'GROUP ' + GROUP_NAMES[gid % GROUP_NAMES.length];
+      const muteBtn = document.createElement('button');
+      muteBtn.className = 'group-mute';
+      muteBtn.textContent = 'mute group';
+      muteBtn.onclick = () => {
+        grp.muted = !grp.muted;
+        muteBtn.classList.toggle('muted', grp.muted);
+        muteBtn.textContent = grp.muted ? 'muted' : 'mute group';
+      };
+      head.appendChild(name);
+      head.appendChild(muteBtn);
+      panel.appendChild(head);
+
+      const nodesRow = document.createElement('div');
+      nodesRow.className = 'nodes-row';
+      for (let i = 0; i < grp.n; i++) {
+        const node = document.createElement('div');
+        node.className = 'node';
+        const dot = document.createElement('div');
+        dot.className = 'node-dot';
+        dot.id = 'dot-' + gid + '-' + i;
+        dot.textContent = i;
+        dot.onclick = () => {
+          grp.nodeMuted[i] = !grp.nodeMuted[i];
+          dot.classList.toggle('muted', grp.nodeMuted[i]);
+        };
+        const idx = document.createElement('div');
+        idx.className = 'node-idx';
+        idx.textContent = 'x[' + i + ']';
+        node.appendChild(dot);
+        node.appendChild(idx);
+        nodesRow.appendChild(node);
+      }
+      panel.appendChild(nodesRow);
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'group-wave';
+      canvas.id = 'wave-' + gid;
+      canvas.width = 800;
+      canvas.height = 46;
+      panel.appendChild(canvas);
+
+      groupsEl.appendChild(panel);
+    });
+  }
+
+  function renderFrame() {
+    const now = performance.now();
+    groups.forEach((grp, gid) => {
+      const panel = document.getElementById('panel-' + gid);
+      const isReconfiguring = now < grp.reconfigUntil;
+      panel.classList.toggle('reconfig', isReconfiguring);
+
+      for (let i = 0; i < grp.n; i++) {
+        const dot = document.getElementById('dot-' + gid + '-' + i);
+        if (!dot) continue;
+        const v = grp.x[i];
+        const norm = Math.min(Math.abs(v) / BOUND, 1.0);
+        const isReconfigNode = isReconfiguring && grp.reconfigNode === i;
+        const isKnocked = now < grp.knockedUntil && grp.knockedNode === i;
+        let bg, glow;
+        if (isKnocked) {
+          bg = 'hsl(50,90%,55%)'; glow = '0 0 10px hsl(50,90%,55%)';
+        } else if (isReconfigNode) {
+          bg = '#ffffff'; glow = '0 0 10px rgba(255,255,255,0.6)';
+        } else if (norm < 0.08) {
+          bg = 'hsl(140,55%,32%)'; glow = '0 0 4px hsl(140,55%,40%)';
+        } else if (v > 0) {
+          const l = 32 + norm * 18;
+          bg = `hsl(6,75%,${l}%)`; glow = `0 0 ${4 + norm * 10}px hsl(6,75%,${l + 10}%)`;
+        } else {
+          const l = 32 + norm * 18;
+          bg = `hsl(206,75%,${l}%)`; glow = `0 0 ${4 + norm * 10}px hsl(206,75%,${l + 10}%)`;
+        }
+        dot.style.background = bg;
+        dot.style.boxShadow = glow;
+      }
+
+      const canvas = document.getElementById('wave-' + gid);
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.fillStyle = '#080808';
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+        const hist = grp.hist;
+        const sw = w / HIST;
+        ctx.strokeStyle = GROUP_COLORS[gid % GROUP_COLORS.length];
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        hist.forEach((v, fi) => {
+          const py = h / 2 - (v / (BOUND * 2)) * (h / 2 - 4);
+          const x = w - (hist.length - fi) * sw;
+          if (fi === 0) ctx.moveTo(x, py); else ctx.lineTo(x, py);
+        });
+        ctx.stroke();
+      }
+    });
+  }
+
+  function tick() {
+    const means = groups.map(g => g.mean());
+    groups.forEach((grp, gid) => {
+      let otherSum = 0, otherCount = 0;
+      means.forEach((m, j) => { if (j !== gid) { otherSum += m; otherCount++; } });
+      const otherMean = otherCount > 0 ? otherSum / otherCount : 0;
+      grp.step(otherMean);
+    });
+    renderFrame();
+    updateAudio();
+    requestAnimationFrame(tick);
+  }
+
+  // ---- controls wiring ----
+  const ctlGroups = document.getElementById('ctl-groups');
+  const ctlNodes = document.getElementById('ctl-nodes');
+  const ctlNodesVal = document.getElementById('ctl-nodes-val');
+  const ctlIgc = document.getElementById('ctl-igc');
+  const ctlIgcVal = document.getElementById('ctl-igc-val');
+  const ctlKnock = document.getElementById('ctl-knock');
+  const ctlAudio = document.getElementById('ctl-audio');
+  const ctlReset = document.getElementById('ctl-reset');
+
+  ctlGroups.addEventListener('change', () => {
+    nGroups = parseInt(ctlGroups.value, 10);
+    buildGroups();
+  });
+  ctlNodes.addEventListener('input', () => { ctlNodesVal.textContent = ctlNodes.value; });
+  ctlNodes.addEventListener('change', () => {
+    nodesPerGroup = parseInt(ctlNodes.value, 10);
+    buildGroups();
+  });
+  ctlIgc.addEventListener('input', () => {
+    igc = parseFloat(ctlIgc.value);
+    ctlIgcVal.textContent = igc.toFixed(2);
+  });
+  ctlKnock.addEventListener('click', () => {
+    const unmuted = groups.filter(g => !g.muted);
+    const pool = unmuted.length ? unmuted : groups;
+    pool[Math.floor(Math.random() * pool.length)].knock();
+  });
+  ctlAudio.addEventListener('click', () => {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    audioOn = !audioOn;
+    ctlAudio.textContent = audioOn ? '🔊 sound on' : '🔇 sound off';
+  });
+  ctlReset.addEventListener('click', () => { buildGroups(); });
+
+  buildGroups();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
