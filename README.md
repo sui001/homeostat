@@ -10,6 +10,9 @@ Built by Sui and Thomas for educational and illustrative purposes - to make Ashb
 ## Live Demo - Visualiser
 
 [![Homeostat II -- Distributed Units](distributed/visualiser.png)](https://sui001.github.io/homeostat/visualiser/)
+
+[Homeostat unit, redrawn](https://sui001.github.io/homeostat/visualiser/homeostat_unit_redrawn.html) - a modern schematic of Ashby's unit, plus the wiring for four units.
+
 ---
 
 ## What is the homeostat?

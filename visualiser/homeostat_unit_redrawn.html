@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Homeostat Unit Redraw</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: a drawing set. Each figure gets the full sheet width, with notes in a plain column under it. */
+:root {
+  --bg: #eef2f3; --sheet: #fbfcfc; --fg: #17242b; --muted: #55666f; --rule: #c6d1d5;
+  --sig: #0b63a8; --ht: #c02f2a; --lv: #8a5a00; --grid: #18794e; --uni: #6b3fa0; --inf: #b45f06;
+  --l1: #0b63a8; --l2: #c02f2a; --l3: #18794e; --l4: #6b3fa0;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10181c; --sheet: #172127; --fg: #e4ecef; --muted: #9aabb3; --rule: #33434b;
+  --sig: #62b4f0; --ht: #f2837d; --lv: #e0b050; --grid: #5fcf9c; --uni: #bd9bea; --inf: #f4a653;
+  --l1: #62b4f0; --l2: #f2837d; --l3: #5fcf9c; --l4: #bd9bea; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10181c; --sheet: #172127; --fg: #e4ecef; --muted: #9aabb3; --rule: #33434b;
+  --sig: #62b4f0; --ht: #f2837d; --lv: #e0b050; --grid: #5fcf9c; --uni: #bd9bea; --inf: #f4a653;
+  --l1: #62b4f0; --l2: #f2837d; --l3: #5fcf9c; --l4: #bd9bea; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--sans); }
+main { max-width: 1120px; margin: 0 auto; padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 44px; }
+main > * { min-width: 0; }
+h1 { font: 600 2.4rem/1.1 var(--cond); margin: 0 0 10px; text-wrap: balance; }
+h2 { font: 600 1.5rem/1.2 var(--cond); margin: 0 0 8px; text-wrap: balance; }
+h3 { font: 600 1rem/1.3 var(--sans); margin: 22px 0 6px; }
+p { margin: 0 0 12px; max-width: 70ch; }
+.lede { color: var(--muted); font-size: 1.08rem; }
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-top: 22px; }
+.key > div { min-width: 0; }
+.key b { display: block; margin-bottom: 4px; }
+.key p { font-size: .95rem; margin: 0; }
+figure { margin: 14px 0 0; background: var(--sheet); border: 1px solid var(--rule); }
+.scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font: 12.5px/1.5 var(--mono); color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.sw { display: inline-block; width: 18px; border-top: 3px solid; vertical-align: middle; margin-right: 6px; }
+.sw.d { border-top-style: dashed; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; }
+td code, p code, li code { font: .9em var(--mono); }
+.tw { overflow-x: auto; }
+ul { margin: 0 0 12px; padding-left: 20px; max-width: 70ch; }
+li { margin-bottom: 6px; }
+/* drawing styles */
+svg polyline, svg path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.w { stroke: var(--fg); stroke-width: 1.5; } .s { stroke: var(--sig); stroke-width: 1.8; }
+.h { stroke: var(--ht); stroke-width: 1.8; } .lv { stroke: var(--lv); stroke-width: 1.8; }
+.gr { stroke: var(--grid); stroke-width: 1.8; } .u { stroke: var(--uni); stroke-width: 1.8; }
+.inf { stroke: var(--inf); stroke-width: 1.8; stroke-dasharray: 6 4; }
+.mech { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.thin { stroke-width: 1.2; } .thick { stroke-width: 3; } .dash { stroke-dasharray: 7 6; }
+.l1 { stroke: var(--l1); stroke-width: 2.4; } .l2 { stroke: var(--l2); stroke-width: 2.4; }
+.l3 { stroke: var(--l3); stroke-width: 2.4; } .l4 { stroke: var(--l4); stroke-width: 2.4; }
+svg path.arrow { stroke: none; fill: var(--fg); }
+circle.dot.w { fill: var(--fg); } circle.dot.s { fill: var(--sig); } circle.dot.gr { fill: var(--grid); }
+circle.dot { stroke: none; }
+circle.pin { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.5; }
+rect.part, circle.part { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.5; }
+rect.part.u { stroke: var(--sig); }
+rect.former { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 8 5; }
+rect.magnet { fill: var(--fg); } rect.trough { fill: var(--rule); stroke: var(--fg); stroke-width: 1.2; }
+rect.term { fill: var(--bg); stroke: var(--fg); stroke-width: 1.2; }
+rect.column { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+rect.cell { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.3; }
+rect.drive { fill: var(--sheet); stroke-width: 2.4; }
+rect.d1 { stroke: var(--l1); } rect.d2 { stroke: var(--l2); } rect.d3 { stroke: var(--l3); } rect.d4 { stroke: var(--l4); }
+svg text { fill: var(--fg); font-family: var(--mono); font-size: 13px; }
+svg .ts { font-size: 12px; fill: var(--muted); } svg .tx { font-size: 10px; fill: var(--muted); }
+svg .tb { font-family: var(--sans); font-weight: 600; font-size: 14px; }
+svg .tm { font-size: 12px; font-weight: 500; }
+svg .th { fill: var(--ht); font-weight: 500; } svg .tl { fill: var(--lv); font-weight: 500; } svg .ti { font-size: 12px; fill: var(--inf); }
+body { margin: 0; }
+img { max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Homeostat unit, redrawn</h1>
+  <p class="lede">A modern redraw of Ashby's notebook sketch, plus the wiring for four units. It uses the notebook page, checked against Figure 8/2/3 of <i>Design for a Brain</i>. Anything still inferred is marked.</p>
+  <div class="key">
+    <div><b>The output is a current loop</b><p>Anode, relay, OUT.b, whatever you connect, OUT.a, self-coil network, +100 V. The relay and self coil sit in series with the load.</p></div>
+    <div><b>An unconnected unit is dead</b><p>With OUT open, no current flows, so L4 gets no feedback and the relay can never trip. The units need each other to run.</p></div>
+    <div><b>Wire the inputs in series</b><p>Each output goes through one input on each of the other three units. That makes four closed loops and sixteen jumpers.</p></div>
+  </div>
+</header>
+
+<section>
+  <h2>Fig. 1: Schematic of one unit</h2>
+  <p>The magnet position sets the grid voltage through the trough, the valve turns that into anode voltage, and the difference from +100 V drives current round the output loop. Three inputs and the self coil push the magnet.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1200 840" style="min-width:900px" role="img" aria-label="Schematic of one homeostat unit: three input channels into four coils on a former, a magnet driving a needle in a water trough, a triode, relay and uniselector drive.">
+<rect class="former" x="530" y="62" width="86" height="530" rx="14"/>
+<text class="ts" x="573" y="54" text-anchor="middle">coil former</text>
+<polyline class="s" points="30,180 130,180"/>
+<polyline class="s" points="30,216 130,216"/>
+<circle class="pin" cx="30" cy="180" r="4"/><circle class="pin" cx="30" cy="216" r="4"/>
+<text class="t" x="26" y="171" text-anchor="start">IN1.a</text>
+<text class="t" x="26" y="234" text-anchor="start">IN1.b</text>
+<rect class="part" x="130" y="114" width="26" height="150" rx="0"/>
+<rect class="part" x="430" y="114" width="26" height="150" rx="0"/>
+<text class="tb" x="143" y="200" text-anchor="middle">A</text>
+<text class="tb" x="443" y="200" text-anchor="middle">A</text>
+<polyline class="mech" points="143,114 143,102 443,102 443,114"/>
+<text class="ts" x="293" y="97" text-anchor="middle">SW1 (A) 4-pole, 3-way: H / U / off</text>
+<polyline class="s" points="156,146 190,146"/>
+<polyline class="s" points="156,170 190,170"/>
+<rect class="part" x="190" y="136" width="40" height="44" rx="0"/>
+<path class="s thin" d="M190 146H198L222 170H230M190 170H198L222 146H230"/>
+<text class="ts" x="210" y="195" text-anchor="middle">SW4</text>
+<polyline class="s" points="230,146 302,146"/>
+<path class="arrow" d="M304 146l-9 -4l0 8z"/>
+<polyline class="s" points="230,170 430,170"/>
+<circle class="dot s" cx="311" cy="170" r="3.4"/>
+<polyline class="s" points="311,170 311,164"/>
+<polyline class="s" points="311,128 311,122 430,122"/>
+<rect class="part" x="305" y="128" width="12" height="36" rx="0"/>
+<text class="ts" x="324" y="148" text-anchor="start">RV1</text>
+<polyline class="s" points="156,212 250,212"/>
+<polyline class="s" points="156,236 250,236"/>
+<polyline class="s" points="350,212 430,212"/>
+<polyline class="s" points="350,236 430,236"/>
+<rect class="part u" x="250" y="202" width="100" height="44" rx="0"/>
+<text class="tb" x="300" y="221" text-anchor="middle">US1</text>
+<text class="tx" x="300" y="237" text-anchor="middle">uniselector bank</text>
+<polyline class="s" points="456,180 560,180"/>
+<polyline class="s" points="456,216 560,216"/>
+<path class="s" d="M560 180a6.0 6.0 0 0 1 0 12.0a6.0 6.0 0 0 1 0 12.0a6.0 6.0 0 0 1 0 12.0"/>
+<text class="ts" x="584" y="204" text-anchor="start">L1</text>
+<polyline class="s" points="30,355 130,355"/>
+<polyline class="s" points="30,391 130,391"/>
+<circle class="pin" cx="30" cy="355" r="4"/><circle class="pin" cx="30" cy="391" r="4"/>
+<text class="t" x="26" y="346" text-anchor="start">IN2.a</text>
+<text class="t" x="26" y="409" text-anchor="start">IN2.b</text>
+<rect class="part" x="130" y="289" width="26" height="150" rx="0"/>
+<rect class="part" x="430" y="289" width="26" height="150" rx="0"/>
+<text class="tb" x="143" y="375" text-anchor="middle">A</text>
+<text class="tb" x="443" y="375" text-anchor="middle">A</text>
+<polyline class="mech" points="143,289 143,277 443,277 443,289"/>
+<text class="ts" x="293" y="272" text-anchor="middle">SW2 (A) 4-pole, 3-way: H / U / off</text>
+<polyline class="s" points="156,321 190,321"/>
+<polyline class="s" points="156,345 190,345"/>
+<rect class="part" x="190" y="311" width="40" height="44" rx="0"/>
+<path class="s thin" d="M190 321H198L222 345H230M190 345H198L222 321H230"/>
+<text class="ts" x="210" y="370" text-anchor="middle">SW5</text>
+<polyline class="s" points="230,321 302,321"/>
+<path class="arrow" d="M304 321l-9 -4l0 8z"/>
+<polyline class="s" points="230,345 430,345"/>
+<circle class="dot s" cx="311" cy="345" r="3.4"/>
+<polyline class="s" points="311,345 311,339"/>
+<polyline class="s" points="311,303 311,297 430,297"/>
+<rect class="part" x="305" y="303" width="12" height="36" rx="0"/>
+<text class="ts" x="324" y="323" text-anchor="start">RV2</text>
+<polyline class="s" points="156,387 250,387"/>
+<polyline class="s" points="156,411 250,411"/>
+<polyline class="s" points="350,387 430,387"/>
+<polyline class="s" points="350,411 430,411"/>
+<rect class="part u" x="250" y="377" width="100" height="44" rx="0"/>
+<text class="tb" x="300" y="396" text-anchor="middle">US2</text>
+<text class="tx" x="300" y="412" text-anchor="middle">uniselector bank</text>
+<polyline class="s" points="456,355 560,355"/>
+<polyline class="s" points="456,391 560,391"/>
+<path class="s" d="M560 355a6.0 6.0 0 0 1 0 12.0a6.0 6.0 0 0 1 0 12.0a6.0 6.0 0 0 1 0 12.0"/>
+<text class="ts" x="584" y="379" text-anchor="start">L2</text>
+<polyline class="s" points="30,530 130,530"/>
+<polyline class="s" points="30,566 130,566"/>
+<circle class="pin" cx="30" cy="530" r="4"/><circle class="pin" cx="30" cy="566" r="4"/>
+<text class="t" x="26" y="521" text-anchor="start">IN3.a</text>
+<text class="t" x="26" y="584" text-anchor="start">IN3.b</text>
+<rect class="part" x="130" y="464" width="26" height="150" rx="0"/>
+<rect class="part" x="430" y="464" width="26" height="150" rx="0"/>
+<text class="tb" x="143" y="550" text-anchor="middle">A</text>
+<text class="tb" x="443" y="550" text-anchor="middle">A</text>
+<polyline class="mech" points="143,464 143,452 443,452 443,464"/>
+<text class="ts" x="293" y="447" text-anchor="middle">SW3 (A) 4-pole, 3-way: H / U / off</text>
+<polyline class="s" points="156,496 190,496"/>
+<polyline class="s" points="156,520 190,520"/>
+<rect class="part" x="190" y="486" width="40" height="44" rx="0"/>
+<path class="s thin" d="M190 496H198L222 520H230M190 520H198L222 496H230"/>
+<text class="ts" x="210" y="545" text-anchor="middle">SW6</text>
+<polyline class="s" points="230,496 302,496"/>
+<path class="arrow" d="M304 496l-9 -4l0 8z"/>
+<polyline class="s" points="230,520 430,520"/>
+<circle class="dot s" cx="311" cy="520" r="3.4"/>
+<polyline class="s" points="311,520 311,514"/>
+<polyline class="s" points="311,478 311,472 430,472"/>
+<rect class="part" x="305" y="478" width="12" height="36" rx="0"/>
+<text class="ts" x="324" y="498" text-anchor="start">RV3</text>
+<polyline class="s" points="156,562 250,562"/>
+<polyline class="s" points="156,586 250,586"/>
+<polyline class="s" points="350,562 430,562"/>
+<polyline class="s" points="350,586 430,586"/>
+<rect class="part u" x="250" y="552" width="100" height="44" rx="0"/>
+<text class="tb" x="300" y="571" text-anchor="middle">US3</text>
+<text class="tx" x="300" y="587" text-anchor="middle">uniselector bank</text>
+<polyline class="s" points="456,530 560,530"/>
+<polyline class="s" points="456,566 560,566"/>
+<path class="s" d="M560 530a6.0 6.0 0 0 1 0 12.0a6.0 6.0 0 0 1 0 12.0a6.0 6.0 0 0 1 0 12.0"/>
+<text class="ts" x="584" y="554" text-anchor="start">L3</text>
+<path class="s" d="M590 90a6.0 6.0 0 0 0 0 12.0a6.0 6.0 0 0 0 0 12.0a6.0 6.0 0 0 0 0 12.0"/>
+<text class="ts" x="556" y="112" text-anchor="start">L4</text>
+<polyline class="s" points="590,90 650,90"/>
+<polyline class="s" points="590,126 700,126"/>
+<circle class="dot s" cx="650" cy="126" r="3.4"/>
+<rect class="part" x="644" y="96" width="12" height="24" rx="0"/>
+<polyline class="s" points="650,90 650,96"/>
+<polyline class="s" points="650,120 650,126"/>
+<text class="ts" x="650" y="82" text-anchor="middle">RV4</text>
+<polyline class="s" points="700,106 660,106"/>
+<path class="arrow" d="M657 106l9 4l0 -8z"/>
+<rect class="part" x="700" y="96" width="42" height="40" rx="0"/>
+<path class="s thin" d="M700 106H708L734 126H742M700 126H708L734 106H742"/>
+<text class="ts" x="721" y="150" text-anchor="middle">SW7</text>
+<polyline class="h" points="742,106 780,106 780,36"/>
+<text class="th" x="780" y="26" text-anchor="middle">+100 V</text>
+<polyline class="s" points="742,126 1170,126"/>
+<polyline class="s" points="1170,170 900,170 900,214"/>
+<circle class="pin" cx="1170" cy="126" r="4"/><circle class="pin" cx="1170" cy="170" r="4"/>
+<text class="t" x="1180" y="120" text-anchor="end">OUT.a</text>
+<text class="t" x="1180" y="192" text-anchor="end">OUT.b</text>
+<circle class="dot s" cx="900" cy="200" r="3.4"/>
+<polyline class="s" points="900,200 965,200 965,222"/>
+<rect class="part" x="880" y="214" width="40" height="48" rx="0"/>
+<text class="tb" x="872" y="243" text-anchor="end">K1</text>
+<polyline class="s" points="900,262 900,494"/>
+<circle class="dot s" cx="900" cy="276" r="3.4"/>
+<polyline class="s" points="900,276 965,276 965,254"/>
+<path class="s" d="M965 254L978 226"/>
+<circle class="pin" cx="965" cy="222" r="2.5"/><circle class="pin" cx="965" cy="254" r="2.5"/>
+<text class="ts" x="986" y="243" text-anchor="start">SW9 (C)</text>
+<circle class="dot s" cx="900" cy="325" r="3.4"/>
+<polyline class="w" points="900,325 985,325"/>
+<path class="w thick" d="M985 307V343M997 307V343"/>
+<polyline class="w" points="997,325 1070,325 1070,340"/>
+<polyline class="w" points="1070,340 1070,348"/>
+<path class="w" d="M1057 348H1083M1062 353H1078M1067 358H1073"/>
+<text class="ts" x="991" y="298" text-anchor="middle">C1</text>
+<circle class="dot s" cx="900" cy="385" r="3.4"/>
+<polyline class="w" points="900,385 930,385"/>
+<rect class="part" x="930" y="377" width="60" height="16" rx="0"/>
+<text class="ts" x="960" y="370" text-anchor="middle">RV5 balance</text>
+<polyline class="w" points="960,430 960,396"/>
+<path class="arrow" d="M960 394l4 9l-8 0z"/>
+<polyline class="w" points="960,430 1010,430"/>
+<rect class="part" x="1010" y="422" width="60" height="16" rx="0"/>
+<text class="ts" x="1040" y="454" text-anchor="middle">R1</text>
+<polyline class="h" points="1070,430 1120,430"/>
+<text class="th" x="1126" y="435" text-anchor="start">+150 V</text>
+<circle class="part" cx="900" cy="530" r="44"/>
+<path class="w thick" d="M878 502H922"/>
+<path class="gr dash" d="M856 530H944"/>
+<path class="w" d="M878 562q22 -18 44 0"/>
+<polyline class="w" points="900,562 900,620"/>
+<polyline class="w" points="900,620 900,628"/>
+<path class="w" d="M887 628H913M892 633H908M897 638H903"/>
+<text class="ts" x="956" y="534" text-anchor="start">V1 triode</text>
+<rect class="magnet" x="600" y="610" width="90" height="14" rx="0"/>
+<text class="ts" x="698" y="622" text-anchor="start">pivoted magnet</text>
+<polyline class="mech" points="573,592 573,617 600,617"/>
+<text class="ts" x="565" y="612" text-anchor="end">torque</text>
+<polyline class="gr" points="645,624 645,696"/>
+<path class="arrow" d="M645 699l-4 -9l8 0z"/>
+<circle class="dot gr" cx="645" cy="660" r="3.4"/>
+<polyline class="gr" points="645,660 720,660"/>
+<path class="gr" d="M720 660a7 7 0 0 1 14 0a7 7 0 0 1 14 0a7 7 0 0 1 14 0"/>
+<polyline class="gr" points="762,660 810,660 810,530 856,530"/>
+<text class="ts" x="741" y="680" text-anchor="middle">L5 flex lead</text>
+<rect class="trough" x="520" y="699" width="250" height="16" rx="0"/>
+<text class="ts" x="645" y="734" text-anchor="middle">water trough = liquid potentiometer</text>
+<polyline class="lv" points="520,707 480,707 480,772 585,772"/>
+<polyline class="lv" points="770,707 810,707 810,772 705,772"/>
+<rect class="part" x="585" y="752" width="120" height="40" rx="0"/>
+<path class="lv thin" d="M585 762H593L697 782H705M585 782H593L697 762H705"/>
+<text class="ts" x="745" y="800" text-anchor="start">SW8 (BB) reverses the rails if the magnet is reversed</text>
+<polyline class="lv" points="585,782 560,782 560,812"/>
+<polyline class="lv" points="705,782 730,782 730,812"/>
+<text class="tl" x="560" y="828" text-anchor="middle">−15 V</text>
+<text class="tl" x="730" y="828" text-anchor="middle">+2 V</text>
+<polyline class="u" points="660,262 725,262"/>
+<polyline class="u" points="785,262 840,262 840,306"/>
+<polyline class="u" points="840,346 840,412 795,412"/>
+<polyline class="u" points="735,412 660,412 660,352"/>
+<polyline class="u" points="660,310 660,262"/>
+<path class="u" d="M725 262a7.5 7.5 0 0 1 15 0a7.5 7.5 0 0 1 15 0M755 262h0M755 262a7.5 7.5 0 0 1 15 0a7.5 7.5 0 0 1 15 0"/>
+<text class="ts" x="755" y="244" text-anchor="middle">L6 uniselector magnet</text>
+<path class="u" d="M840 306h0M840 346L852 310"/>
+<circle class="pin" cx="840" cy="306" r="2.5"/><circle class="pin" cx="840" cy="346" r="2.5"/>
+<text class="ts" x="830" y="330" text-anchor="end">H homer</text>
+<path class="u" d="M660 352L648 314"/>
+<circle class="pin" cx="660" cy="310" r="2.5"/><circle class="pin" cx="660" cy="352" r="2.5"/>
+<text class="ts" x="672" y="327" text-anchor="start">K1 contact</text>
+<text class="ts" x="672" y="342" text-anchor="start">per Fig. 8/2/3</text>
+<path class="u" d="M735 400V424M747 406V418M771 400V424M783 406V418"/>
+<path class="u dash" d="M747 412H771"/>
+<path class="u" d="M783 412h12"/>
+<text class="ts" x="765" y="442" text-anchor="middle">BT1 battery</text>
+  </svg></div>
+  <figcaption><span><i class="sw" style="color:var(--sig)"></i>output and input current</span><span><i class="sw" style="color:var(--ht)"></i>HT</span><span><i class="sw" style="color:var(--lv)"></i>bias rails</span><span><i class="sw" style="color:var(--grid)"></i>grid signal</span><span><i class="sw" style="color:var(--uni)"></i>uniselector drive</span></figcaption></figure>
+
+  <h3>What is read from the page, and what is inferred</h3>
+  <div class="tw"><table>
+    <tr><th>Item</th><th>Status</th><th>Detail</th></tr>
+    <tr><td>Rails: +150, +100, +2, −15 V</td><td>Drawn</td><td>The only values on the page. The needle at centre gives −6.5 V on the grid.</td></tr>
+    <tr><td>Commutator SW7 position</td><td>Drawn, zoomed to confirm</td><td>One side is the wiper and foot of RV4. The other side is +100 V and OUT.a. So +100 V is not wired straight to the output.</td></tr>
+    <tr><td>Pot wiring</td><td>Drawn</td><td>Feed enters at wiper and foot, and the coil sits across the whole pot. This is a current shunt. Wiper at the foot short-circuits the input and gives zero coil current.</td></tr>
+    <tr><td>Box outline is chassis</td><td>Inferred</td><td>C1 lands on the outline with a dot and the earth symbol sits on it, so I drew C1 to 0 V.</td></tr>
+    <tr><td>RV5 sets the balance</td><td>Inferred</td><td>A rheostat from +150 V to the anode exists to put the anode at +100 V with the needle centred, which is zero output.</td></tr>
+    <tr><td>Relay trips in both directions</td><td>Inferred</td><td>An unpolarised coil in the output line responds to either sign of current.</td></tr>
+    <tr><td>K1 contact driving the uniselector</td><td>Confirmed by the book</td><td>The notebook leaves these wires in mid-air. Fig. 8/2/3 shows the relay F contact in series with the battery and uniselector G.</td></tr>
+    <tr><td>Relay position</td><td>Differs, same circuit</td><td>The notebook puts the relay on the anode side of the output. The book puts it on the fixed-voltage side, next to the self network. It is in series with the output either way.</td></tr>
+    <tr><td>C across the relay</td><td>Unclear</td><td>Drawn as an open switch across K1, and the legend only says "Relay". If it is K1's own contact, closing it shorts the coil and the relay chatters, which would step the uniselector repeatedly. If it is a manual switch, it disables the uniselector. The book figure shows no such switch, so it may be a notebook-only detail. Check this first.</td></tr>
+    <tr><td>Third way of switch A</td><td>Unknown</td><td>The book draws S as a plain changeover between hand and uniselector, with no off position. The notebook calls it three-way but draws only those two paths.</td></tr>
+    <tr><td>Not on the page</td><td>Missing</td><td>Component values, valve type, relay threshold, heater supply, uniselector bank wiring and the fractionator circuit.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Fig. 2: Wiring of one unit</h2>
+  <p>The same circuit grouped into subassemblies, with a rear terminal strip. Terminal names are mine, and the a/b labels are arbitrary because the commutators reverse any pair.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1200 470" style="min-width:900px" role="img" aria-label="Wiring diagram from a fifteen-way rear terminal strip to six subassemblies.">
+<text class="tb" x="28" y="26" text-anchor="start">TB1, rear panel of each unit</text>
+<rect class="term" x="28" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="50" y="65" text-anchor="middle">IN1.a</text>
+<rect class="term" x="107" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="129" y="65" text-anchor="middle">IN1.b</text>
+<rect class="term" x="186" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="208" y="65" text-anchor="middle">IN2.a</text>
+<rect class="term" x="265" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="287" y="65" text-anchor="middle">IN2.b</text>
+<rect class="term" x="344" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="366" y="65" text-anchor="middle">IN3.a</text>
+<rect class="term" x="423" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="445" y="65" text-anchor="middle">IN3.b</text>
+<rect class="term" x="502" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="524" y="65" text-anchor="middle">OUT.a</text>
+<rect class="term" x="581" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="603" y="65" text-anchor="middle">OUT.b</text>
+<rect class="term" x="660" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="682" y="65" text-anchor="middle">+150</text>
+<rect class="term" x="739" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="761" y="65" text-anchor="middle">+100</text>
+<rect class="term" x="818" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="840" y="65" text-anchor="middle">+2</text>
+<rect class="term" x="897" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="919" y="65" text-anchor="middle">−15</text>
+<rect class="term" x="976" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="998" y="65" text-anchor="middle">0 V</text>
+<rect class="term" x="1055" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="1077" y="65" text-anchor="middle">BAT+</text>
+<rect class="term" x="1134" y="44" width="44" height="32" rx="0"/>
+<text class="tm" x="1156" y="65" text-anchor="middle">BAT−</text>
+<rect class="part" x="20" y="230" width="300" height="96" rx="0"/>
+<text class="tb" x="170.0" y="254" text-anchor="middle">Input channels 1 to 3</text>
+<text class="ts" x="170.0" y="274" text-anchor="middle">SW1–3, SW4–6, RV1–3</text>
+<text class="ts" x="170.0" y="290" text-anchor="middle">US1–3 banks</text>
+<rect class="part" x="350" y="230" width="170" height="96" rx="0"/>
+<text class="tb" x="435.0" y="254" text-anchor="middle">Self-feedback</text>
+<text class="ts" x="435.0" y="274" text-anchor="middle">SW7, RV4</text>
+<rect class="part" x="550" y="230" width="190" height="96" rx="0"/>
+<text class="tb" x="645.0" y="254" text-anchor="middle">Valve stage</text>
+<text class="ts" x="645.0" y="274" text-anchor="middle">V1, K1, SW9</text>
+<text class="ts" x="645.0" y="290" text-anchor="middle">C1, RV5, R1</text>
+<rect class="part" x="770" y="230" width="160" height="96" rx="0"/>
+<text class="tb" x="850.0" y="254" text-anchor="middle">Trough</text>
+<text class="ts" x="850.0" y="274" text-anchor="middle">SW8, trough, needle</text>
+<rect class="part" x="960" y="230" width="190" height="96" rx="0"/>
+<text class="tb" x="1055.0" y="254" text-anchor="middle">Uniselector drive</text>
+<text class="ts" x="1055.0" y="274" text-anchor="middle">L6, SW10 (H), K1 contact</text>
+<rect class="part" x="130" y="390" width="320" height="66" rx="0"/>
+<text class="tb" x="290.0" y="414" text-anchor="middle">Coil former L1 to L4</text>
+<text class="ts" x="290.0" y="434" text-anchor="middle">four coils on one magnet</text>
+<polyline class="s" points="50,76 50,100 50,150 50,230"/>
+<polyline class="s" points="129,76 129,108 94,158 94,230"/>
+<polyline class="s" points="208,76 208,100 138,166 138,230"/>
+<polyline class="s" points="287,76 287,108 182,174 182,230"/>
+<polyline class="s" points="366,76 366,100 226,182 226,230"/>
+<polyline class="s" points="445,76 445,108 270,190 270,230"/>
+<polyline class="s" points="524,76 524,200 450,200 450,230"/>
+<polyline class="s" points="603,76 603,186 610,186 610,230"/>
+<polyline class="h" points="682,76 682,186 650,186 650,230"/>
+<polyline class="h" points="761,76 761,208 410,208 410,230"/>
+<polyline class="lv" points="840,76 840,150 810,150 810,230"/>
+<polyline class="lv" points="919,76 919,166 880,166 880,230"/>
+<polyline class="w" points="998,76 998,120 695,120 695,230"/>
+<polyline class="u" points="1077,76 1077,230"/>
+<polyline class="u" points="1156,76 1156,200 1120,200 1120,230"/>
+<polyline class="s" points="80,326 80,358 190,358 190,390"/>
+<polyline class="s" points="160,326 160,358 250,358 250,390"/>
+<polyline class="s" points="240,326 240,358 310,358 310,390"/>
+<polyline class="s" points="430,326 430,390"/>
+<text class="ts" x="20" y="380" text-anchor="start">one pair per coil</text>
+<text class="ts" x="440" y="362" text-anchor="start">L4 pair</text>
+<polyline class="gr" points="660,326 660,380 860,380 860,326"/>
+<text class="ts" x="760" y="400" text-anchor="middle">grid lead</text>
+<polyline class="mech" points="450,423 640,423 640,440 800,440 800,326"/>
+<text class="ts" x="650" y="458" text-anchor="start">magnet moves needle</text>
+  </svg></div></figure>
+  <h3>Point-to-point list</h3>
+  <div class="tw"><table>
+    <tr><th>Net</th><th>Connects</th></tr>
+    <tr><td><code>INn.a/b</code></td><td>TB1 to SWn input poles</td></tr>
+    <tr><td>Hand path</td><td>SWn position H to SW(n+3) to RVn wiper and foot. RVn top and foot to SWn output poles.</td></tr>
+    <tr><td>Uniselector path</td><td>SWn position U to USn to SWn output poles</td></tr>
+    <tr><td><code>Ln</code></td><td>SWn output poles to coil Ln</td></tr>
+    <tr><td><code>OUT.a</code></td><td>TB1 to SW7 outer pin. Partner outer pin to +100 V.</td></tr>
+    <tr><td>Self network</td><td>SW7 inner pins to RV4 wiper and foot. RV4 top and foot to L4.</td></tr>
+    <tr><td><code>OUT.b</code></td><td>TB1 to K1 top and SW9</td></tr>
+    <tr><td>Anode</td><td>K1 bottom, SW9, C1, RV5 and V1 plate. C1 other side to 0 V.</td></tr>
+    <tr><td>HT feed</td><td>+150 V to R1 to RV5 slider</td></tr>
+    <tr><td>Grid</td><td>Needle to flex lead L5 to V1 grid. V1 cathode to 0 V.</td></tr>
+    <tr><td>Trough</td><td>+2 and −15 V through SW8 to the two trough electrodes</td></tr>
+    <tr><td>Uniselector drive</td><td>BT1, SW10 (H), L6 and K1 contact in series</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Fig. 3: Four units connected</h2>
+  <p>Each unit has three external inputs and one output, so four units make a fully connected network: every unit drives the other three. L4 supplies the fourth coil, the diagonal of the matrix, and needs no external wiring.</p>
+  <p>Read the figure as a matrix. Each row is one closed output loop, and each column is the set of coils on one magnet.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1060 650" style="min-width:820px" role="img" aria-label="Four by four matrix. Each row is a closed loop from one unit's driver through one input on each of the other three units.">
+<rect class="column" x="198" y="62" width="194" height="546" rx="10"/>
+<text class="tb" x="295.0" y="42" text-anchor="middle">Unit 1 magnet</text>
+<rect class="column" x="408" y="62" width="194" height="546" rx="10"/>
+<text class="tb" x="505.0" y="42" text-anchor="middle">Unit 2 magnet</text>
+<rect class="column" x="618" y="62" width="194" height="546" rx="10"/>
+<text class="tb" x="715.0" y="42" text-anchor="middle">Unit 3 magnet</text>
+<rect class="column" x="828" y="62" width="194" height="546" rx="10"/>
+<text class="tb" x="925.0" y="42" text-anchor="middle">Unit 4 magnet</text>
+<text class="tb" x="20" y="150" text-anchor="start">Unit 1</text>
+<text class="ts" x="20" y="168" text-anchor="start">output loop</text>
+<polyline class="l1" points="162,126 1058,126 1058,176 162,176 162,126"/>
+<rect class="drive d1" x="212" y="106" width="166" height="80" rx="6"/>
+<text class="tb" x="295.0" y="132" text-anchor="middle">U1 driver</text>
+<text class="ts" x="295.0" y="150" text-anchor="middle">L4 self coil, K1, V1</text>
+<text class="ts" x="295.0" y="168" text-anchor="middle">OUT.a to OUT.b</text>
+<rect class="cell" x="450" y="108" width="110" height="36" rx="0"/>
+<text class="tm" x="505.0" y="131" text-anchor="middle">U2.IN1</text>
+<rect class="cell" x="660" y="108" width="110" height="36" rx="0"/>
+<text class="tm" x="715.0" y="131" text-anchor="middle">U3.IN1</text>
+<rect class="cell" x="870" y="108" width="110" height="36" rx="0"/>
+<text class="tm" x="925.0" y="131" text-anchor="middle">U4.IN1</text>
+<text class="tb" x="20" y="278" text-anchor="start">Unit 2</text>
+<text class="ts" x="20" y="296" text-anchor="start">output loop</text>
+<polyline class="l2" points="162,254 1058,254 1058,304 162,304 162,254"/>
+<rect class="cell" x="240" y="236" width="110" height="36" rx="0"/>
+<text class="tm" x="295.0" y="259" text-anchor="middle">U1.IN1</text>
+<rect class="drive d2" x="422" y="234" width="166" height="80" rx="6"/>
+<text class="tb" x="505.0" y="260" text-anchor="middle">U2 driver</text>
+<text class="ts" x="505.0" y="278" text-anchor="middle">L4 self coil, K1, V1</text>
+<text class="ts" x="505.0" y="296" text-anchor="middle">OUT.a to OUT.b</text>
+<rect class="cell" x="660" y="236" width="110" height="36" rx="0"/>
+<text class="tm" x="715.0" y="259" text-anchor="middle">U3.IN2</text>
+<rect class="cell" x="870" y="236" width="110" height="36" rx="0"/>
+<text class="tm" x="925.0" y="259" text-anchor="middle">U4.IN2</text>
+<text class="tb" x="20" y="406" text-anchor="start">Unit 3</text>
+<text class="ts" x="20" y="424" text-anchor="start">output loop</text>
+<polyline class="l3" points="162,382 1058,382 1058,432 162,432 162,382"/>
+<rect class="cell" x="240" y="364" width="110" height="36" rx="0"/>
+<text class="tm" x="295.0" y="387" text-anchor="middle">U1.IN2</text>
+<rect class="cell" x="450" y="364" width="110" height="36" rx="0"/>
+<text class="tm" x="505.0" y="387" text-anchor="middle">U2.IN2</text>
+<rect class="drive d3" x="632" y="362" width="166" height="80" rx="6"/>
+<text class="tb" x="715.0" y="388" text-anchor="middle">U3 driver</text>
+<text class="ts" x="715.0" y="406" text-anchor="middle">L4 self coil, K1, V1</text>
+<text class="ts" x="715.0" y="424" text-anchor="middle">OUT.a to OUT.b</text>
+<rect class="cell" x="870" y="364" width="110" height="36" rx="0"/>
+<text class="tm" x="925.0" y="387" text-anchor="middle">U4.IN3</text>
+<text class="tb" x="20" y="534" text-anchor="start">Unit 4</text>
+<text class="ts" x="20" y="552" text-anchor="start">output loop</text>
+<polyline class="l4" points="162,510 1058,510 1058,560 162,560 162,510"/>
+<rect class="cell" x="240" y="492" width="110" height="36" rx="0"/>
+<text class="tm" x="295.0" y="515" text-anchor="middle">U1.IN3</text>
+<rect class="cell" x="450" y="492" width="110" height="36" rx="0"/>
+<text class="tm" x="505.0" y="515" text-anchor="middle">U2.IN3</text>
+<rect class="cell" x="660" y="492" width="110" height="36" rx="0"/>
+<text class="tm" x="715.0" y="515" text-anchor="middle">U3.IN3</text>
+<rect class="drive d4" x="842" y="490" width="166" height="80" rx="6"/>
+<text class="tb" x="925.0" y="516" text-anchor="middle">U4 driver</text>
+<text class="ts" x="925.0" y="534" text-anchor="middle">L4 self coil, K1, V1</text>
+<text class="ts" x="925.0" y="552" text-anchor="middle">OUT.a to OUT.b</text>
+  </svg></div></figure>
+
+  <h3>Jumper list</h3>
+  <div class="tw"><table>
+    <tr><th>Loop</th><th>1</th><th>2</th><th>3</th><th>4</th></tr>
+    <tr><td>Unit 1</td><td><code>U1.OUT.a → U2.IN1.a</code></td><td><code>U2.IN1.b → U3.IN1.a</code></td><td><code>U3.IN1.b → U4.IN1.a</code></td><td><code>U4.IN1.b → U1.OUT.b</code></td></tr>
+    <tr><td>Unit 2</td><td><code>U2.OUT.a → U3.IN2.a</code></td><td><code>U3.IN2.b → U4.IN2.a</code></td><td><code>U4.IN2.b → U1.IN1.a</code></td><td><code>U1.IN1.b → U2.OUT.b</code></td></tr>
+    <tr><td>Unit 3</td><td><code>U3.OUT.a → U4.IN3.a</code></td><td><code>U4.IN3.b → U1.IN2.a</code></td><td><code>U1.IN2.b → U2.IN2.a</code></td><td><code>U2.IN2.b → U3.OUT.b</code></td></tr>
+    <tr><td>Unit 4</td><td><code>U4.OUT.a → U1.IN3.a</code></td><td><code>U1.IN3.b → U2.IN3.a</code></td><td><code>U2.IN3.b → U3.IN3.a</code></td><td><code>U3.IN3.b → U4.OUT.b</code></td></tr>
+  </table></div>
+  <p style="margin-top:12px">All four units share 0 V, +150, +100, +2 and −15 V. Give each uniselector drive its own feed so a stepping pulse does not disturb the rails.</p>
+
+  <h3>Why series, not parallel</h3>
+  <ul>
+    <li><b>The pots are built for it.</b> Each is a shunt on a current line. Turned to zero, it short-circuits its own input. In series that simply gives zero weight. In parallel it would short the whole output and starve the other two units.</li>
+    <li><b>Ashby already does it once.</b> The self network and relay are both in series in the output. Series inputs extend the same pattern.</li>
+    <li><b>The weights stay independent.</b> The same current passes through all four networks, so setting one pot, or one uniselector step, barely changes what another unit receives.</li>
+    <li><b>The relay stays calibrated.</b> It reads the same current that L4 and the other units receive, whatever the input settings are.</li>
+  </ul>
+  <p>To take an input out of action, turn its pot to zero and leave the wiring alone. That keeps the loop closed. If the third way of switch A turns out to be a plain open, don't use it, because it would break the whole loop.</p>
+
+  <h3>The book's output terminals show the same series chain</h3>
+  <p>Fig. 8/2/3 has six output ends, and they look like a fork. Enlarged, the two main wires reach only the outermost ends. The two inner chevrons do not touch them. Each chevron links the return of one output pair to the start of the next, which is a series chain built into the sending unit.</p>
+  <figure style="max-width:680px"><div class="scroll"><svg viewBox="0 0 560 220" style="min-width:480px" role="img" aria-label="Output wires reach the first and sixth terminals. Links join terminals two to three and four to five, so three loads sit in series.">
+    <polyline class="s" points="20,85 120,85 200,30 340,30"/><polyline class="s" points="20,125 120,125 200,190 340,190"/>
+    <polyline class="s" points="340,60 240,77 340,95"/><polyline class="s" points="340,125 240,142 340,160"/>
+    <rect class="cell" x="340" y="20" width="150" height="50"/><rect class="cell" x="340" y="85" width="150" height="50"/><rect class="cell" x="340" y="150" width="150" height="50"/>
+    <text class="tm" x="415" y="49" text-anchor="middle">first receiver</text><text class="tm" x="415" y="114" text-anchor="middle">second receiver</text><text class="tm" x="415" y="179" text-anchor="middle">third receiver</text>
+    <text class="ts" x="20" y="76">anode</text><text class="ts" x="20" y="143">F, D, X, J</text>
+  </svg></div><figcaption>Gaps at the chevrons are real in this scan, but it is low resolution. Check a cleaner copy.</figcaption></figure>
+  <p style="margin-top:12px">This uses three two-wire cables per unit, 24 wires in all. The ring in Fig. 3 uses 16. The two are the same circuit, and they only differ in where the links sit.</p>
+
+  <h3>The rotating scheme</h3>
+  <p>The alternative rule is 1.OUT.a → 2.IN1 → 3.IN2 → 4.IN3 → 1.OUT.b, stepped round for each unit. Tracing the coloured diagram gives exactly this rule. It has the same four loops as Fig. 3, in the same order. Only the input numbers change:</p>
+  <div class="tw"><table>
+    <tr><th>Unit</th><th>Fig. 3: IN1, IN2, IN3 fed by</th><th>Rotating: IN1, IN2, IN3 fed by</th></tr>
+    <tr><td>Unit 1</td><td>2, 3, 4</td><td>4, 3, 2</td></tr>
+    <tr><td>Unit 2</td><td>1, 3, 4</td><td>1, 4, 3</td></tr>
+    <tr><td>Unit 3</td><td>1, 2, 4</td><td>2, 1, 4</td></tr>
+    <tr><td>Unit 4</td><td>1, 2, 3</td><td>3, 2, 1</td></tr>
+  </table></div>
+  <p style="margin-top:12px">The three input channels are electrically identical, so this swap changes nothing. Its real benefit is that every unit's harness is the same, because INk always comes from the unit k steps back. It is not the only way that balances. Balance is set in each unit by E (RV5), which puts the anode at the fixed voltage. Any arrangement that gives each unit one input from each of the others works, which is 1,296 slot assignments.</p>
+
+  <h3>Safety</h3>
+  <p>Every coil, pot and input terminal sits near +100 V above chassis, including when the unit is idle. Treat the switches and all jumpers as live.</p>
+</section>
+</main>
+</body>
+</html>
