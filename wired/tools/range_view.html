@@ -62,12 +62,45 @@ button:hover { border-color: var(--sig); }
     </div>
     <div class="verdict" id="verdict">Hold the arm still at each end and mark it. The page compares the travel with the jitter.</div>
   </div>
+
+  <div class="card" style="margin-top:14px">
+    <h1 style="margin-bottom:6px">Calibrate</h1>
+    <div style="color:var(--muted)">Hold the target still at a distance you have measured with a ruler, type it in and record it. Do this at two distances, near and far, ideally spanning the arm's swing. Saved in this browser.</div>
+    <div class="row">
+      <label>true distance <input id="truemm" type="number" min="10" max="2000" step="1" style="width:6em;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)"> mm</label>
+      <button id="recordCal">Record point</button>
+      <button id="clearCal">Clear calibration</button>
+    </div>
+    <div class="row" id="calInfo" style="color:var(--muted)"></div>
+  </div>
 </main>
 <script>
 const WINDOW_S = 10;
-let pts = [];              // {t, mm}
+let pts = [];              // {t, mm, raw}: mm is calibrated, -1 when blind
 let endA = null, endB = null;
 const $ = id => document.getElementById(id);
+
+// Calibration: true = gain * raw + offset, fitted to the recorded points.
+let calPts = [];           // {raw, truth}
+let gain = 1, offset = 0;
+try { calPts = JSON.parse(localStorage.getItem("tofCal") || "[]"); } catch (e) { calPts = []; }
+
+function fitCal() {
+  if (calPts.length === 0) { gain = 1; offset = 0; }
+  else if (calPts.length === 1) { gain = 1; offset = calPts[0].truth - calPts[0].raw; }
+  else {
+    const mr = mean(calPts.map(p => p.raw)), mt = mean(calPts.map(p => p.truth));
+    const sxx = calPts.reduce((s, p) => s + (p.raw - mr) ** 2, 0);
+    const sxy = calPts.reduce((s, p) => s + (p.raw - mr) * (p.truth - mt), 0);
+    gain = sxx > 0 ? sxy / sxx : 1; offset = mt - gain * mr;
+  }
+  for (const p of pts) p.mm = p.raw > 0 ? gain * p.raw + offset : -1;
+  try { localStorage.setItem("tofCal", JSON.stringify(calPts)); } catch (e) {}
+  $("calInfo").textContent = calPts.length
+    ? `points: ${calPts.map(p => `${p.raw.toFixed(0)} read as ${p.truth}`).join(", ")}. ` +
+      `true = ${gain.toFixed(3)} × raw ${offset >= 0 ? "+" : "−"} ${Math.abs(offset).toFixed(1)} mm`
+    : "No calibration: showing the sensor's raw numbers.";
+}
 
 function recent(s) { const cut = Date.now() / 1000 - s; return pts.filter(p => p.t >= cut); }
 function seenOnly(a) { return a.filter(p => p.mm > 0).map(p => p.mm); }
@@ -136,7 +169,7 @@ function refresh() {
   const one = recent(1), v1 = seenOnly(one), v10 = seenOnly(recent(WINDOW_S));
   if (last) {
     const blind = last.mm <= 0;
-    $("mm").innerHTML = (blind ? "--" : last.mm) + "<small>mm</small>";
+    $("mm").innerHTML = (blind ? "--" : Math.round(last.mm)) + "<small>mm" + (calPts.length && !blind ? ` (raw ${last.raw})` : "") + "</small>";
     const st = $("state");
     if (blind) { st.textContent = "nothing seen"; st.className = "state bad"; }
     else if (last.mm < 40) { st.textContent = "too close, below about 40 mm"; st.className = "state warn"; }
@@ -146,7 +179,7 @@ function refresh() {
   $("jit").textContent = v1.length > 2 ? sd(v1).toFixed(1) : "--";
   $("seen").textContent = one.length ? Math.round(100 * v1.length / one.length) + "%" : "--";
   $("rate").textContent = one.length;
-  $("span").textContent = v10.length ? `${Math.min(...v10)}–${Math.max(...v10)}` : "--";
+  $("span").textContent = v10.length ? `${Math.round(Math.min(...v10))}–${Math.round(Math.max(...v10))}` : "--";
   judge(); draw();
 }
 
@@ -154,8 +187,19 @@ $("markA").onclick = () => markEnd("A");
 $("markB").onclick = () => markEnd("B");
 $("clear").onclick = () => { endA = endB = null; $("verdict").className = "verdict"; $("verdict").textContent = "Ends cleared."; judge(); };
 
+$("recordCal").onclick = () => {
+  const truth = parseFloat($("truemm").value);
+  const raws = recent(0.5).filter(p => p.raw > 0).map(p => p.raw);
+  if (!(truth > 0) || raws.length < 5) return;
+  calPts.push({ raw: mean(raws), truth });
+  $("truemm").value = "";
+  fitCal();
+};
+$("clearCal").onclick = () => { calPts = []; fitCal(); };
+fitCal();
+
 new EventSource("/stream").onmessage = e => {
-  for (const [t, mm] of JSON.parse(e.data)) pts.push({ t, mm });
+  for (const [t, raw] of JSON.parse(e.data)) pts.push({ t, raw, mm: raw > 0 ? gain * raw + offset : -1 });
   const cut = Date.now() / 1000 - WINDOW_S - 1;
   while (pts.length && pts[0].t < cut) pts.shift();
 };
