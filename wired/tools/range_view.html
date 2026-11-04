@@ -162,6 +162,19 @@ function draw() {
   g.stroke();
   g.fillStyle = col("--bad");
   for (const p of win) if (p.mm <= 0) g.fillRect(x(p.t) - 1, h - B - 4, 2, 4);
+
+  // coil drive, -100..100 %, on its own scale
+  const withDrive = win.filter(p => p.drive != null);
+  if (withDrive.length) {
+    const yd = d => T + (h - T - B) * (1 - (d + 100) / 200);
+    g.strokeStyle = col("--warn"); g.lineWidth = 1.5; g.setLineDash([5, 4]); g.beginPath();
+    withDrive.forEach((p, i) => i ? g.lineTo(x(p.t), yd(p.drive)) : g.moveTo(x(p.t), yd(p.drive)));
+    g.stroke(); g.setLineDash([]);
+    g.fillStyle = col("--warn"); g.textAlign = "right";
+    g.fillText("drive +100%", w - R, T + 10); g.fillText("−100%", w - R, h - B - 4);
+    g.fillText(`drive ${withDrive[withDrive.length - 1].drive}%`, w - R, h - 6);
+    g.textAlign = "left";
+  }
 }
 
 function refresh() {
@@ -199,7 +212,7 @@ $("clearCal").onclick = () => { calPts = []; fitCal(); };
 fitCal();
 
 new EventSource("/stream").onmessage = e => {
-  for (const [t, raw] of JSON.parse(e.data)) pts.push({ t, raw, mm: raw > 0 ? gain * raw + offset : -1 });
+  for (const [t, raw, drive] of JSON.parse(e.data)) pts.push({ t, raw, drive, mm: raw > 0 ? gain * raw + offset : -1 });
   const cut = Date.now() / 1000 - WINDOW_S - 1;
   while (pts.length && pts[0].t < cut) pts.shift();
 };
