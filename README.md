@@ -13,6 +13,8 @@ Built by Sui and Thomas for educational and illustrative purposes - to make Ashb
 
 [Homeostat unit, redrawn](https://sui001.github.io/homeostat/visualiser/homeostat_unit_redrawn.html) - a modern schematic of Ashby's unit, plus the wiring for four units.
 
+[The first needle, a bench build](https://sui001.github.io/homeostat/visualiser/homeostat_bench_build.html) - one unit's needle from a salvaged hard drive arm, a motor shield and a ToF sensor: schematic, results and firmware.
+
 ---
 
 ## What is the homeostat?
