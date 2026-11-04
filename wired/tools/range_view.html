@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ToF Range</title>
+<style>
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --fg: #1b1b1a; --muted: #5c5b57; --line: #d9d7d0;
+  --sig: #0b6e99; --ok: #2f7d32; --warn: #b26a00; --bad: #b3261e; --band: rgba(11,110,153,.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151514; --card: #1f1f1d; --fg: #f1efe9; --muted: #b3b0a8; --line: #3a3935;
+          --sig: #5cc3ee; --ok: #7fcf83; --warn: #f0b04a; --bad: #ff8a80; --band: rgba(92,195,238,.16); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+h1 { font-size: 1.1rem; margin: 0 0 14px; font-weight: 600; }
+.top { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 14px; }
+@media (max-width: 680px) { .top { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.big { font: 600 4.2rem/1 ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.big small { font-size: 1.4rem; color: var(--muted); margin-left: 6px; }
+.state { margin-top: 8px; font-weight: 600; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stat b { display: block; font: 600 1.5rem/1.2 ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: .85rem; }
+canvas { width: 100%; height: 260px; display: block; margin-top: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line);
+         background: var(--card); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--sig); }
+.verdict { margin-top: 10px; font-weight: 600; }
+.ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>ToF range, live</h1>
+  <div class="top">
+    <div class="card">
+      <div class="big" id="mm">--<small>mm</small></div>
+      <div class="state" id="state">waiting for the sensor</div>
+    </div>
+    <div class="card stats">
+      <div class="stat"><b id="jit">--</b><span>jitter, last 1 s (±mm)</span></div>
+      <div class="stat"><b id="seen">--</b><span>readings with a target</span></div>
+      <div class="stat"><b id="rate">--</b><span>readings per second</span></div>
+      <div class="stat"><b id="span">--</b><span>min to max, last 10 s</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <canvas id="chart"></canvas>
+    <div class="row">
+      <button id="markA">Arm at end A</button>
+      <button id="markB">Arm at end B</button>
+      <button id="clear">Clear ends</button>
+      <span id="ends" style="color:var(--muted)"></span>
+    </div>
+    <div class="verdict" id="verdict">Hold the arm still at each end and mark it. The page compares the travel with the jitter.</div>
+  </div>
+</main>
+<script>
+const WINDOW_S = 10;
+let pts = [];              // {t, mm}
+let endA = null, endB = null;
+const $ = id => document.getElementById(id);
+
+function recent(s) { const cut = Date.now() / 1000 - s; return pts.filter(p => p.t >= cut); }
+function seenOnly(a) { return a.filter(p => p.mm > 0).map(p => p.mm); }
+function mean(a) { return a.reduce((x, y) => x + y, 0) / a.length; }
+function sd(a) { const m = mean(a); return Math.sqrt(mean(a.map(x => (x - m) ** 2))); }
+
+function markEnd(which) {
+  const v = seenOnly(recent(0.5));
+  if (!v.length) return;
+  if (which === "A") endA = mean(v); else endB = mean(v);
+  judge();
+}
+
+function judge() {
+  $("ends").textContent = [endA != null ? `A ${endA.toFixed(1)} mm` : "", endB != null ? `B ${endB.toFixed(1)} mm` : ""].filter(Boolean).join(", ");
+  const v = seenOnly(recent(1));
+  if (endA == null || endB == null || v.length < 5) return;
+  const travel = Math.abs(endB - endA), jit = sd(v);
+  const steps = jit > 0 ? travel / (2 * jit) : Infinity;
+  const el = $("verdict");
+  el.className = "verdict " + (steps >= 15 ? "ok" : steps >= 6 ? "warn" : "bad");
+  el.textContent = `Travel ${travel.toFixed(1)} mm against ±${jit.toFixed(1)} mm jitter: about ${Math.round(steps)} distinct positions. ` +
+    (steps >= 15 ? "Good enough for a needle." : steps >= 6 ? "Usable with smoothing. Move closer or lengthen the pointer." : "Too coarse. Move the sensor closer, widen the flag or lengthen the pointer.");
+}
+
+function draw() {
+  const c = $("chart"), dpr = devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const col = n => css.getPropertyValue(n).trim();
+  const now = Date.now() / 1000, win = recent(WINDOW_S), v = seenOnly(win);
+  let lo = v.length ? Math.min(...v) : 0, hi = v.length ? Math.max(...v) : 300;
+  [endA, endB].forEach(e => { if (e != null) { lo = Math.min(lo, e); hi = Math.max(hi, e); } });
+  const pad = Math.max(5, (hi - lo) * 0.15); lo -= pad; hi += pad;
+  const L = 48, R = 8, T = 8, B = 22;
+  const x = t => L + (w - L - R) * (1 - (now - t) / WINDOW_S);
+  const y = mm => T + (h - T - B) * (1 - (mm - lo) / (hi - lo));
+
+  g.font = "12px system-ui"; g.fillStyle = col("--muted"); g.strokeStyle = col("--line"); g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const mm = lo + (hi - lo) * i / 4, yy = y(mm);
+    g.beginPath(); g.moveTo(L, yy); g.lineTo(w - R, yy); g.stroke();
+    g.fillText(mm.toFixed(0), 6, yy + 4);
+  }
+  g.fillText("mm, last 10 s", L, h - 6);
+
+  if (endA != null && endB != null) {
+    g.fillStyle = col("--band");
+    g.fillRect(L, y(Math.max(endA, endB)), w - L - R, Math.abs(y(endA) - y(endB)));
+  }
+  g.strokeStyle = col("--sig"); g.lineWidth = 2; g.beginPath();
+  let pen = false;
+  for (const p of win) {
+    if (p.mm <= 0) { pen = false; continue; }
+    if (!pen) { g.moveTo(x(p.t), y(p.mm)); pen = true; } else g.lineTo(x(p.t), y(p.mm));
+  }
+  g.stroke();
+  g.fillStyle = col("--bad");
+  for (const p of win) if (p.mm <= 0) g.fillRect(x(p.t) - 1, h - B - 4, 2, 4);
+}
+
+function refresh() {
+  const last = pts[pts.length - 1];
+  const one = recent(1), v1 = seenOnly(one), v10 = seenOnly(recent(WINDOW_S));
+  if (last) {
+    const blind = last.mm <= 0;
+    $("mm").innerHTML = (blind ? "--" : last.mm) + "<small>mm</small>";
+    const st = $("state");
+    if (blind) { st.textContent = "nothing seen"; st.className = "state bad"; }
+    else if (last.mm < 40) { st.textContent = "too close, below about 40 mm"; st.className = "state warn"; }
+    else if (last.mm > 150) { st.textContent = "far: the beam is wider than the flag"; st.className = "state warn"; }
+    else { st.textContent = "good distance"; st.className = "state ok"; }
+  }
+  $("jit").textContent = v1.length > 2 ? sd(v1).toFixed(1) : "--";
+  $("seen").textContent = one.length ? Math.round(100 * v1.length / one.length) + "%" : "--";
+  $("rate").textContent = one.length;
+  $("span").textContent = v10.length ? `${Math.min(...v10)}–${Math.max(...v10)}` : "--";
+  judge(); draw();
+}
+
+$("markA").onclick = () => markEnd("A");
+$("markB").onclick = () => markEnd("B");
+$("clear").onclick = () => { endA = endB = null; $("verdict").className = "verdict"; $("verdict").textContent = "Ends cleared."; judge(); };
+
+new EventSource("/stream").onmessage = e => {
+  for (const [t, mm] of JSON.parse(e.data)) pts.push({ t, mm });
+  const cut = Date.now() / 1000 - WINDOW_S - 1;
+  while (pts.length && pts[0].t < cut) pts.shift();
+};
+setInterval(refresh, 100);
+</script>
+</body>
+</html>
