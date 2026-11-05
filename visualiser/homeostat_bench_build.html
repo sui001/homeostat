@@ -90,6 +90,11 @@ rect.flag { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.4; }
 .grid0 { stroke: var(--rule); stroke-width: 1; }
 nav a, p a, li a, td a { color: var(--sig); }
 .back { font-size: .95rem; }
+.photos { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; align-items: start; margin-top: 14px; }
+.photos .stack { display: grid; gap: 20px; }
+@media (max-width: 760px) { .photos { grid-template-columns: 1fr; } }
+.photos figure, .src figure { margin: 0; min-width: 0; }
+figure img { display: block; width: 100%; height: auto; }
 .steps { display: grid; gap: 14px; margin: 18px 0 0; padding: 0; list-style: none; counter-reset: s; max-width: 74ch; }
 .steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 8px; margin: 0; }
 .steps li::before { content: counter(s); font: 600 1rem/1.5 var(--cond); color: var(--sig); }
@@ -110,6 +115,17 @@ body { margin: 0 } img { max-width: 100% }</style>
 </header>
 
 <section>
+  <h2>On the bench</h2>
+  <div class="photos">
+    <figure class="hero"><img src="img/bench/overview.jpg" width="1200" height="1600" alt="The whole rig taped to a sheet of cardboard: the opened hard drive with a card flag on its arm at the top, the blue motor shield in the middle, the ToF sensor at the left and the ESP32 SuperMini at the bottom right, joined by jumper wires."><figcaption>The whole unit on a sheet of cardboard: drive and needle at the top, motor shield, ToF sensor on the left, SuperMini bottom right.</figcaption></figure>
+    <div class="stack">
+      <figure><img src="img/bench/arm_and_sensor.jpg" width="1200" height="1600" loading="lazy" alt="The opened drive with a folded card flag glued to the head arm, the coil wires running off to the shield, and the ToF sensor on its jumper leads in the background."><figcaption>The needle and its watcher. The card flag stands up from the arm tip; the ToF waits to be aimed at it.</figcaption></figure>
+      <figure><img src="img/bench/shield_wiring.jpg" width="1200" height="1600" loading="lazy" alt="The motor shield and the SuperMini joined by coloured jumper wires, the coil's orange and grey leads in the M1 terminal and the 100 microfarad capacitor beside the power terminal."><figcaption>Shield and SuperMini. Coil leads (orange and grey) in M1, I2C and power on jumpers, the 100 µF capacitor at the power terminal.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section>
   <h2>What we did</h2>
   <ol class="steps">
     <li><span><b>Opened the drive.</b> A 2.5 in Seagate (500 GB, discarded). Platters out, head arm left on its pivot with the flat voice coil between the two magnet plates behind it. The coil is the motor; the tips carry the read heads and are not used.</span></li>
@@ -122,6 +138,10 @@ body { margin: 0 } img { max-width: 100% }</style>
     <li><span><b>Lined it up.</b> A live range page showed distance, jitter and a 10 s trace. At 200 mm the beam is wider than the flag; at 100 mm a small target read 180, so the page gained a two-point calibration against a ruler.</span></li>
     <li><span><b>Ran both together</b> and logged 1,240 readings of arm position against coil drive (Fig. 3).</span></li>
   </ol>
+  <div class="src" style="margin-top:22px">
+    <figure><img src="img/bench/coil_leads.jpg" width="1200" height="1600" loading="lazy" alt="Close-up of the arm's pivot block: two hair-thin enamelled coil wires loop up from their solder pads on the copper flex beside the bearing."><figcaption>Step 2, close up. The coil's two enamelled wires land on solder pads on the flex beside the pivot bearing. The new leads were soldered to these pads, not to the wires.</figcaption></figure>
+    <figure><img src="img/bench/arm_flag.jpg" width="1200" height="1600" loading="lazy" alt="The drive from the side: a folded card flag, its face still black before it was changed to white, glued upright on the head arm, with the coil leads curling away."><figcaption>The flag: folded card glued upright on the arm, shown here with its first black face. The ToF reads black poorly, so the face was changed to white after the range tests.</figcaption></figure>
+  </div>
 </section>
 
 <section>
