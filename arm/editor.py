@@ -133,6 +133,9 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/reach":
                 return self.send(200, reach(float(q.get("table", 0.16))))
             if u.path == "/api/sweep":
+                if _sweep["state"] not in ("ok", "loading"):    # armster was slow or away: try again
+                    _sweep["state"] = "loading"
+                    threading.Thread(target=load_sweep, daemon=True).start()
                 return self.send(200, _sweep)
             if u.path == "/api/job":
                 return self.send(200, job)
