@@ -31,6 +31,9 @@ CHUNK = 40
 
 d = json.load(open(PLAN))
 if d["params"].get("long_nozzle"): plan.HOTEND[:] = plan.HOTEND_LONG
+if abs(d["params"].get("nozzle", gen3.ARM_TCP) - gen3.NOZZLE) > 1e-6:
+    sys.exit("Plan was made for a %.0f mm nozzle reach, the model now says %.0f mm. Re-plan first."
+             % (d["params"].get("nozzle", gen3.ARM_TCP) * 1000, gen3.NOZZLE * 1000))
 W = np.array(d["strand"]); wps = d["waypoints"]; table = d["params"]["table"]
 s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
 S = np.arange(0, s[-1] + 1e-9, 0.001); dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
@@ -43,8 +46,8 @@ sm = SessionManager(r); sm.CreateSession(info)
 try:
     base = BaseClient(r); cyc = BaseCyclicClient(r)
     tt = ControlConfigClient(r).GetToolConfiguration().tool_transform
-    if abs(tt.z - 0.2) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
-        sys.exit("Tool transform on the arm is %s, the plan assumes z = 0.200 m. Stopping." % [tt.x, tt.y, tt.z])
+    if abs(tt.z - gen3.ARM_TCP) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
+        sys.exit("Tool transform on the arm is %s, the plan assumes z = %.3f m. Stopping." % ([tt.x, tt.y, tt.z], gen3.ARM_TCP))
     cur = [a.position for a in cyc.RefreshFeedback().actuators]
     print("arm reachable; current joints", [round(a, 1) for a in cur])
 
@@ -54,7 +57,7 @@ try:
         if not w["ok"]:
             continue
         ikd = Base_pb2.IKData()
-        p = ikd.cartesian_pose; p.x, p.y, p.z = w["tip"]; p.theta_x, p.theta_y, p.theta_z = w["euler"]
+        p = ikd.cartesian_pose; p.x, p.y, p.z = w.get("tcp", w["tip"]); p.theta_x, p.theta_y, p.theta_z = w["euler"]
         for q in w["joints"]:
             ikd.guess.joint_angles.add().value = q
         try:
@@ -93,7 +96,7 @@ try:
         for w in part:
             wp = wl.waypoints.add(); wp.name = "p%d" % w["i"]
             cw = wp.cartesian_waypoint
-            cw.pose.x, cw.pose.y, cw.pose.z = w["tip"]; cw.pose.theta_x, cw.pose.theta_y, cw.pose.theta_z = w["euler"]
+            cw.pose.x, cw.pose.y, cw.pose.z = w.get("tcp", w["tip"]); cw.pose.theta_x, cw.pose.theta_y, cw.pose.theta_z = w["euler"]
             cw.reference_frame = Base_pb2.CARTESIAN_REFERENCE_FRAME_BASE
             cw.maximum_linear_velocity = SPEED; cw.maximum_angular_velocity = 15.0   # this arm refuses anything over 20 deg/s here
             cw.blending_radius = 0.0

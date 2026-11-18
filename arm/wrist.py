@@ -1,8 +1,9 @@
 """Cheap estimate of |J5| (wrist bend) for a nozzle direction at a tip position, elbow-up arm.
-J5 sits on the tool axis 0.3674 m behind the tip (tool 0.200 + 0.0615 + 0.10593); J5 is the angle
+J5 sits on the tool axis gen3.NOZZLE + 0.1674 m behind the tip (nozzle + 0.0615 + 0.10593); J5 is the angle
 between the forearm (elbow -> J5 centre) and the tool axis."""
 import numpy as np
-SH = np.array([0, 0, 0.2848]); L1, L2, BACK = 0.410, 0.3144, 0.3674
+import gen3
+SH = np.array([0, 0, 0.2848]); L1, L2, BACK = 0.410, 0.3144, gen3.NOZZLE + 0.16743
 def j5_est(tip, D):
     Wc = tip[None, :] - BACK * D                       # (d,3) J5 centres
     v = Wc - SH; r = np.hypot(v[:, 0], v[:, 1]); h = v[:, 2]; L = np.hypot(r, h)

@@ -21,14 +21,15 @@ import gen3, wrist
 from homeostat_path import path_mm
 
 # ---------------------------------------------------------------- geometry (metres)
-# Tool frame = the arm's tool frame: flange + 0.200 m along its z (the arm's tool transform).
-# Tool z points out of the nozzle, so the hot end body occupies tool z in [-0.200, 0].
+# Tool frame = the nozzle tip: flange + gen3.NOZZLE along the flange z. The arm itself is still set to a
+# 0.200 m tool (gen3.ARM_TCP), so poses sent to it go through gen3.arm_tcp() (the "tcp" field below).
+# Tool z points out of the nozzle, so the hot end body occupies tool z in [-NOZZLE, 0].
 # (name, z_from, z_to, radius, clearance wanted from strand, ignore the last N mm of fresh strand)
 HOTEND = [
     ("nozzle",  -0.006, 0.000, 0.0025, 0.0005, 4.0),
     ("heater",  -0.018, -0.006, 0.0140, 0.0020, 4.0),
     ("duct",    -0.060, -0.018, 0.0300, 0.0050, 0.0),
-    ("mount",   -0.200, -0.060, 0.0350, 0.0080, 0.0),
+    ("mount",   -gen3.NOZZLE, -0.060, 0.0350, 0.0080, 0.0),
 ]
 # Arm capsules between consecutive frames from gen3.frames(): index pairs, radius, clearance.
 # frames: 0..5 = after joints 1..6, 6 = flange.  (Base and shoulder are below/behind the work.)
@@ -41,10 +42,10 @@ HOTEND_LONG = [
     ("nozzle",  -0.020, 0.000, 0.0030, 0.0005, 4.0),
     ("heater",  -0.032, -0.020, 0.0140, 0.0020, 0.0),
     ("duct",    -0.075, -0.032, 0.0300, 0.0050, 0.0),
-    ("mount",   -0.200, -0.075, 0.0350, 0.0080, 0.0),
+    ("mount",   -gen3.NOZZLE, -0.075, 0.0350, 0.0080, 0.0),
 ]
 BEAD_R = 0.0012          # free-formed strand radius
-TOOL = np.eye(4); TOOL[2, 3] = 0.200
+TOOL = np.eye(4); TOOL[2, 3] = gen3.NOZZLE
 DOWN_EULER = (180.0, 0.0, 90.0)   # paint_sim's "tool pointing at the desk"
 
 # ---------------------------------------------------------------- distances
@@ -177,7 +178,7 @@ STEP_DEG = 9.0      # most the nozzle direction may swing between points 2 mm ap
 def arm_clearance_all_dirs(D, tip, strand, table_z):
     """Upper arm, forearm and wrist (J5 to flange, on the tool axis) vs strand and table, every direction."""
     E, Wc, _ = wrist.arm_points(tip, D)
-    F0 = tip[None, :] - 0.200 * D                       # flange
+    F0 = tip[None, :] - gen3.NOZZLE * D                 # flange
     segs = [(np.broadcast_to(wrist.SH, E.shape), E, 0.050), (E, Wc, 0.045), (Wc, F0, 0.045)]
     best = np.full(len(D), 1.0)
     for A, B, r in segs:
@@ -274,7 +275,9 @@ def plan(args):
             q = qn; x_hint = R[:, 0]
             tc = tool_clearance(R, tip, dense[m], s[i] - S[m], args.table)
             tilt = math.degrees(math.acos(np.clip(-z[2], -1, 1)))
-            out.append(dict(i=i, t=round(float(T[i]), 3), tip=tip.round(5).tolist(), ok=True, tilt=round(tilt, 1),
+            tcp = tip - (gen3.NOZZLE - gen3.ARM_TCP) * z      # what the arm (0.200 m tool) is told
+            out.append(dict(i=i, t=round(float(T[i]), 3), tip=tip.round(5).tolist(), tcp=tcp.round(5).tolist(),
+                            ok=True, tilt=round(tilt, 1),
                             azi=round(math.degrees(math.atan2(z[1], z[0])), 1),
                             euler=gen3.euler_xyz(R).round(3).tolist(), joints=np.round(q, 3).tolist(),
                             hotend_mm=[round(v * 1000, 1) for v in tc], arm_mm=[round(v * 1000, 1) for v in ac]))
@@ -286,7 +289,7 @@ def plan(args):
         banned[max(0, bad - 2): bad + 3, near] = True
     for i in range(len(out), len(W)):
         out.append(dict(i=i, tip=W[i].round(5).tolist(), ok=False))
-    return dict(params=vars(args), strand=W.round(5).tolist(), waypoints=out, fails=len(W) - sum(w["ok"] for w in out),
+    return dict(params=dict(vars(args), nozzle=gen3.NOZZLE), strand=W.round(5).tolist(), waypoints=out, fails=len(W) - sum(w["ok"] for w in out),
                 printable_mm=round(float(s[len([w for w in out if w["ok"]]) - 1]) * 1000, 1), total_mm=round(float(s[-1]) * 1000, 1),
                 hotend=[h[0] for h in HOTEND], arm=[a[0] for a in ARM])
 

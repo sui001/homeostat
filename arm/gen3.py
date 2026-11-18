@@ -2,6 +2,16 @@
 Checked against the arm's own ComputeForwardKinematics by fk_check.py."""
 import numpy as np
 
+ARM_TCP = 0.200   # the arm's own tool transform (z); the painting rig relies on it, so it is left alone
+NOZZLE = 0.230    # flange face to nozzle tip along the tool axis, measured 2026-11-18 (hot end held in the gripper)
+
+
+def arm_tcp(tip, euler, nozzle=NOZZLE):
+    """Pose to command the arm (whose TCP is ARM_TCP from the flange) so the nozzle tip lands on `tip`:
+    same orientation, (nozzle - ARM_TCP) back up the tool axis."""
+    return np.asarray(tip, float) - (nozzle - ARM_TCP) * from_euler(*euler)[:, 2]
+
+
 def _rpy(r, p, y):
     cr, sr, cp, sp, cy, sy = np.cos(r), np.sin(r), np.cos(p), np.sin(p), np.cos(y), np.sin(y)
     return np.array([[cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],

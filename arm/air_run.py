@@ -43,6 +43,8 @@ if not all(w["ok"] for w in d["waypoints"]):
     print("NOTE: %d planned points are unreachable and are skipped" % sum(not w["ok"] for w in d["waypoints"]))
 tips = np.array([w["tip"] for w in wps]) + [0, 0, RAISE]
 eul = [w["euler"] for w in wps]
+NOZ = d["params"].get("nozzle", gen3.ARM_TCP)        # plans from before the nozzle was measured: tcp == tip
+tcp_of = lambda pt, e: gen3.arm_tcp(pt, e, NOZ)
 print("plan %s: %d points, %.0f mm, raised %.0f mm -> tip z %.0f..%.0f mm"
       % (PLAN, len(wps), 1000 * np.linalg.norm(np.diff(tips, axis=0), axis=1).sum(), RAISE * 1000,
          tips[:, 2].min() * 1000, tips[:, 2].max() * 1000))
@@ -89,8 +91,8 @@ base = BaseClient(r); cyc = BaseCyclicClient(r)
 lock = None
 try:
     tt = ControlConfigClient(r).GetToolConfiguration().tool_transform
-    if abs(tt.z - 0.2) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
-        sys.exit("Tool transform on the arm is %s, the plan assumes z = 0.200 m. Stopping." % [tt.x, tt.y, tt.z])
+    if abs(tt.z - gen3.ARM_TCP) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
+        sys.exit("Tool transform on the arm is %s, the plan assumes z = %.3f m. Stopping." % ([tt.x, tt.y, tt.z], gen3.ARM_TCP))
     home = None
     req = Base_pb2.RequestedActionType(); req.action_type = Base_pb2.REACH_JOINT_ANGLES
     for a in base.ReadAllActions(req).action_list:
@@ -107,9 +109,13 @@ try:
     # mid-path once the path is raised: it ran J5 into its limit.)
     def ik(pt, e, seed):
         ikd = Base_pb2.IKData(); p = ikd.cartesian_pose
-        p.x, p.y, p.z = [float(v) for v in pt]; p.theta_x, p.theta_y, p.theta_z = [float(v) for v in e]
+        p.x, p.y, p.z = [float(v) for v in tcp_of(pt, e)]; p.theta_x, p.theta_y, p.theta_z = [float(v) for v in e]
         for q in seed: ikd.guess.joint_angles.add().value = q
-        return np.array([waypoint.wrap(j.value) for j in base.ComputeInverseKinematics(ikd).joint_angles])
+        try:
+            return np.array([waypoint.wrap(j.value) for j in base.ComputeInverseKinematics(ikd).joint_angles])
+        except Exception as ex:
+            sys.exit("The arm has no IK solution at tip %s (raised %.0f mm): %s. Not moving; try a smaller AIR_RAISE_MM."
+                     % (np.round(pt, 4).tolist(), RAISE * 1000, str(ex).split("=>")[-1].strip()[:90]))
     def rot_lerp(R0, R1, f):
         Rr = R0.T @ R1; ang = math.acos(max(-1.0, min(1.0, (np.trace(Rr) - 1) / 2)))
         if ang < 1e-9: return R0
@@ -209,7 +215,8 @@ try:
 
     # how closely the tool followed the raised path, over the path part only
     L = np.array(log)[:, 1:]
-    dense = np.concatenate([np.linspace(a, b, 20, endpoint=False) for a, b in zip(tips[:-1], tips[1:])] + [tips[-1:]])
+    tc = np.array([tcp_of(p, e) for p, e in zip(tips, eul)])   # the arm reports its own 0.200 m TCP
+    dense = np.concatenate([np.linspace(a, b, 20, endpoint=False) for a, b in zip(tc[:-1], tc[1:])] + [tc[-1:]])
     near = np.array([np.linalg.norm(dense - p, axis=1).min() for p in L])
     on = near < 0.02     # samples taken while on the path, not during approach / return
     print("tracking: %d samples on the path, deviation median %.2f mm, max %.2f mm"
