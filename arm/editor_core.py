@@ -30,8 +30,7 @@ def arm_only(tip, D, table):
     """Directions the arm itself can take at tip: reach, wrist limits, links and hot end above the table."""
     if math.hypot(tip[0], tip[1]) < BASE_R:
         return np.zeros(len(D), bool)
-    j5, reach = wrist.j5_est(tip, D)
-    ok = reach & (j5 <= plan.J5_MAX) & (j5 >= plan.J5_MIN) & (wrist.j3_est(tip, D) <= plan.J3_MAX)
+    ok = plan.arm_limits_ok(tip, D)[0]
     if ok.any():
         idx = np.nonzero(ok)[0]
         empty = np.zeros((0, 3))

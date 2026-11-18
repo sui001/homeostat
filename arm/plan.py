@@ -110,6 +110,8 @@ def ik(Tt, q0, iters=60):
     for k, lim in enumerate(gen3.LIM):
         if lim is not None and abs(((q[k] + 180) % 360) - 180) > lim - 2:
             ok = False
+    if abs(((q[2] + 180) % 360) - 180) < J3_MIN - 5:     # elbow nearly straight: the estimate let it through
+        ok = False
     return q, ok
 
 # ---------------------------------------------------------------- orientation candidates
@@ -196,6 +198,14 @@ ROLLS = [0, 30, -30, 60, -60, 90, -90, 135, -135, 180]
 J5_MAX = 112.0     # deg; the joint stops at 120.3
 J5_MIN = 6.0       # keep off the wrist singularity, where J4 and J6 spin
 J3_MAX = 143.0     # deg; the elbow stops at 147.8
+J3_MIN = 25.0      # deg; keep the elbow off straight (the reach-edge singularity). At ~10 deg the arm's own
+                   # IK gives up ("second convergence failed"), and the model's few mm of error count most there.
+
+def arm_limits_ok(tip, D):
+    """Directions the arm can take at tip as far as reach and joint limits go: (ok, j5)."""
+    j5, reach = wrist.j5_est(tip, D)
+    j3 = wrist.j3_est(tip, D)
+    return reach & (j5 <= J5_MAX) & (j5 >= J5_MIN) & (j3 <= J3_MAX) & (j3 >= J3_MIN), j5
 STEP_DEG = 9.0      # most the nozzle direction may swing between points 2 mm apart
 
 def arm_clearance_all_dirs(D, tip, strand, table_z):
@@ -262,8 +272,7 @@ def plan(args):
         C[i] = clearance_all_dirs(D, tip, dense[m], s[i] - S[m], args.table)
         C[i][D @ tan > 0.5] = -1.0        # moving into the nozzle's own direction buries the strand
         C[i] = np.minimum(C[i], arm_clearance_all_dirs(D, tip, dense[m], args.table))
-        j5, reach = wrist.j5_est(tip, D)
-        C[i][(j5 > J5_MAX) | (j5 < J5_MIN) | ~reach | (wrist.j3_est(tip, D) > J3_MAX)] = -1.0   # wrist would bend past its limit, or out of reach
+        C[i][~arm_limits_ok(tip, D)[0]] = -1.0   # out of reach, wrist or elbow past its limit, elbow too straight
     free = (C >= 0).sum(1)
     blocked = np.nonzero(free == 0)[0]
     end = int(blocked[0]) if len(blocked) else len(W)

@@ -18,8 +18,7 @@ for i in range(0, len(W)):
     tip = W[i]; m = S <= s[i] + 1e-9
     tan = W[min(i + 1, len(W) - 1)] - W[max(i - 1, 0)]; tan /= np.linalg.norm(tan) or 1
     C = np.minimum(plan.clearance_all_dirs(D, tip, dense[m], s[i] - S[m], 0.0), plan.arm_clearance_all_dirs(D, tip, dense[m], 0.0))
-    j5, reach = wrist.j5_est(tip, D)
-    ok = (C >= 0) & (D @ tan <= 0.5) & reach & (j5 <= plan.J5_MAX) & (j5 >= plan.J5_MIN) & (wrist.j3_est(tip, D) <= plan.J3_MAX)
+    ok = (C >= 0) & (D @ tan <= 0.5) & plan.arm_limits_ok(tip, D)[0]
     if not ok.any():
         break
 else:
