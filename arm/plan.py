@@ -131,9 +131,15 @@ def axis_of(tilt, azi):
     return np.array([math.sin(t) * math.cos(a), math.sin(t) * math.sin(a), -math.cos(t)])
 
 # ---------------------------------------------------------------- placement
-def place(P_mm, centre, table_z, lift, yaw=0.0):
-    """Page axes -> world (x right, page y up -> world z up, page z -> world -y),
-    rotated so the first (outermost) point is the lowest, i.e. the anchor on the table."""
+def rot_xy(roll, pitch):
+    """Rotation about world x by roll, then about world y by pitch (deg)."""
+    cr, sr, cp, sp = math.cos(math.radians(roll)), math.sin(math.radians(roll)), math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]]); Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
+    return Ry @ Rx
+
+def place_base(P_mm):
+    """Page axes -> world (x right, page y up -> world z up, page z -> world -y), rotated so the first
+    (outermost) point is the lowest, then centred in x/y with its lowest point at z = 0."""
     W = np.c_[P_mm[:, 0], -P_mm[:, 2], P_mm[:, 1]] / 1000.0
     c = W.mean(0); u = W[0] - c; u /= np.linalg.norm(u); d = np.array([0, 0, -1.0])
     v = np.cross(u, d); s = np.linalg.norm(v); cth = u @ d
@@ -141,10 +147,27 @@ def place(P_mm, centre, table_z, lift, yaw=0.0):
         K = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]]) / s
         Rm = np.eye(3) + s * K + (1 - cth) * K @ K
         W = (W - c) @ Rm.T + c
-    W = W - [W[:, 0].mean(), W[:, 1].mean(), W[:, 2].min()]
+    return W - [W[:, 0].mean(), W[:, 1].mean(), W[:, 2].min()]
+
+def place_from_base(B, centre, table_z, lift, yaw=0.0, roll=0.0, pitch=0.0):
+    """Tilt (roll about x, then pitch about y) about the middle, set back down on the table (lowest
+    point at table + lift), turn about the vertical by yaw, move to centre. editor.html does the same."""
+    W = B
+    if roll or pitch:
+        W = W @ rot_xy(roll, pitch).T
+        W = W - [W[:, 0].mean(), W[:, 1].mean(), W[:, 2].min()]
     cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
     W = W @ np.array([[cy, sy, 0], [-sy, cy, 0], [0, 0, 1]])     # turn about the vertical through its middle
     return W + [centre[0], centre[1], table_z + lift]
+
+def needs_post(W, table_z):
+    """The anchor (first point) has to stand on something: a post when it is above the table."""
+    return W[0][2] > table_z + 1e-3
+
+def place(P_mm, centre, table_z, lift, yaw=0.0, roll=0.0, pitch=0.0):
+    """Page axes -> world (x right, page y up -> world z up, page z -> world -y),
+    rotated so the first (outermost) point is the lowest, i.e. the anchor on the table."""
+    return place_from_base(place_base(P_mm), centre, table_z, lift, yaw, roll, pitch)
 
 # ---------------------------------------------------------------- look-ahead planning
 def fib_dirs(n=1600, max_up=0.26):
@@ -222,13 +245,13 @@ def plan(args):
     P_mm, T = path_mm(args.preset, args.seconds, args.scale, args.step)
     if args.from_t > 0:   # just the attractor: from the last uniselector step on
         keep = T >= args.from_t; P_mm, T = P_mm[keep], T[keep]
-    W = place(P_mm, (args.x, args.y), args.table, args.lift, args.yaw)
+    W = place(P_mm, (args.x, args.y), args.table, args.lift, args.yaw, args.roll, args.pitch)
     if args.trim > 0:
         W = W[: max(2, len(W) - int(round(args.trim / args.step)))]
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
     S = np.arange(0, s[-1] + 1e-9, 0.001)
     dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
-    if args.lift > 0:   # the post the anchor sits on: 20 mm across, from the table up, always in the way
+    if needs_post(W, args.table):   # the post the anchor sits on: 20 mm across, from the table up, always in the way
         dense, S = with_post(W, dense, S, args.table)
     D = fib_dirs()
     # 1. every clear direction at every point
@@ -302,6 +325,8 @@ if __name__ == "__main__":
     ap.add_argument("--x", type=float, default=0.45); ap.add_argument("--y", type=float, default=0.0)
     ap.add_argument("--from-t", type=float, default=0.0, help="start at this model time, s (10.0 = last uniselector step, spiral only)")
     ap.add_argument("--yaw", type=float, default=0.0, help="turn the sculpture about the vertical, deg")
+    ap.add_argument("--roll", type=float, default=0.0, help="tilt about the world x axis before the yaw, deg")
+    ap.add_argument("--pitch", type=float, default=0.0, help="tilt about the world y axis before the yaw, deg")
     ap.add_argument("--table", type=float, default=0.0, help="table height in the arm's base frame, m")
     ap.add_argument("--lift", type=float, default=0.0, help="print this far above the table (air run), m")
     ap.add_argument("--start-joints", type=float, nargs=6, default=[0, 15, 230, 0, 55, 90])

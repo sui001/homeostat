@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Homeostat print: layout editor</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #f6f5f1; color: #1d1e20; }
+  main { display: flex; gap: 16px; padding: 14px; align-items: flex-start; }
+  .stage { flex: 1; min-width: 0; position: relative; }
+  canvas { display: block; width: 100%; aspect-ratio: 4 / 3; background: #fff; border: 1px solid #dddcd6; border-radius: 6px; touch-action: none; }
+  .tools { position: absolute; top: 10px; left: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .tools button { width: 86px; text-align: left; }
+  .tools button.on { background: #1d1e20; color: #fff; border-color: #1d1e20; }
+  .hint { position: absolute; bottom: 10px; left: 12px; right: 12px; color: #66655f; font-size: 12px; pointer-events: none; }
+  aside { width: 360px; flex: none; }
+  h1 { font-size: 18px; margin: 0 0 2px; } h2 { font-size: 13px; margin: 14px 0 6px; color: #66655f; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+  label { display: flex; flex-direction: column; font-size: 12px; color: #66655f; gap: 2px; }
+  input[type=number] { font: inherit; padding: 4px 6px; border: 1px solid #c9c7bf; border-radius: 4px; width: 100%; background: #fff; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #b9b7af; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1d1e20; color: #fff; border-color: #1d1e20; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: #fff; border: 1px solid #dddcd6; border-radius: 6px; padding: 8px 10px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-variant-numeric: tabular-nums; }
+  dt { color: #66655f; } dd { margin: 0; }
+  .key { font-size: 12px; color: #66655f; margin-top: 6px; } .key span { margin-right: 10px; white-space: nowrap; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }
+  pre { background: #fff; border: 1px solid #dddcd6; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; border-radius: 6px; max-height: 180px; overflow: auto; margin: 6px 0 0; }
+  .good { color: #1e7d45; } .bad { color: #c0392b; } .warn { color: #b26a00; } .muted { color: #8b8a84; }
+  @media (max-width: 1100px) { main { flex-direction: column; } aside { width: 100%; } }
+  code { font-size: 11px; word-break: break-all; }
+  .check { font-size: 12px; color: #66655f; display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-direction: row; }
+</style></head>
+<body><main>
+<div class="stage">
+  <canvas id="view" width="1600" height="1200" aria-label="3-D view: the arm's reach ring, the table and the placed path"></canvas>
+  <div class="tools" role="toolbar" aria-label="Tools">
+    <button data-tool="orbit">View <span class="muted">V</span></button>
+    <button data-tool="move">Move <span class="muted">M</span></button>
+    <button data-tool="rotate">Turn <span class="muted">R</span></button>
+    <button data-tool="scale">Scale <span class="muted">S</span></button>
+  </div>
+  <div class="hint" id="hint"></div>
+</div>
+<aside>
+  <h1>Layout editor</h1>
+  <div class="muted" style="font-size:12px">Homeostat strand on the Kinova Gen3. Nothing here moves the arm.</div>
+
+  <h2>Path</h2>
+  <div class="grid">
+    <label>Start at t (s) · 0 = whole run<input type="number" id="from_t" step="0.5" min="0"></label>
+    <label>Run length (s)<input type="number" id="seconds" step="1" min="1"></label>
+    <label>Scale (mm per 90°)<input type="number" id="scale" step="10" min="10"></label>
+    <label>Preset<input type="number" id="preset" step="1" min="0"></label>
+  </div>
+
+  <h2>Placement</h2>
+  <div class="grid">
+    <label>X (m, out from the base)<input type="number" id="x" step="0.01"></label>
+    <label>Y (m, sideways)<input type="number" id="y" step="0.01"></label>
+    <label>Turn (°, about vertical)<input type="number" id="yaw" step="5"></label>
+    <label>Table height (m)<input type="number" id="table" step="0.01"></label>
+    <label>Tilt about X (°)<input type="number" id="roll" step="5"></label>
+    <label>Tilt about Y (°)<input type="number" id="pitch" step="5"></label>
+    <label>Raise on a post (mm)<input type="number" id="lift" step="10" min="0"></label>
+  </div>
+  <div class="row">
+    <button id="flat">Lay flat</button>
+    <button id="fit">Fit inside reach</button>
+    <button id="view-obj">Frame object</button>
+    <button id="view-all">Whole arm</button>
+  </div>
+  <label class="check"><input type="checkbox" id="use_sweep"> Keep inside the painting rig's working sweep <span id="sweepInfo" class="muted"></span></label>
+
+  <h2>Printability</h2>
+  <div class="card"><dl id="stats"></dl>
+    <div class="key">
+      <span><i class="sw" style="background:#2e7d4f"></i>printable</span>
+      <span><i class="sw" style="background:#e39b25"></i>blocked by strand</span>
+      <span><i class="sw" style="background:#e0533d"></i>out of reach</span>
+      <span><i class="sw" style="background:#8e5cc9"></i>outside sweep</span>
+      <span><i class="sw" style="background:#cfcdc4"></i>after the print stops</span>
+    </div>
+  </div>
+  <label class="check"><input type="checkbox" id="auto" checked> Check automatically after each change</label>
+  <div class="row">
+    <button id="quick">Check placement</button>
+    <button id="plan" class="primary">Plan</button>
+    <button id="planCheck">Plan and check on the arm</button>
+  </div>
+  <div id="jobOut" style="margin-top:6px"></div>
+  <pre id="log" hidden></pre>
+  <h2>Same thing from the command line</h2>
+  <code id="cmd"></code>
+</aside>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const FIELDS = ["preset", "seconds", "scale", "from_t", "x", "y", "yaw", "roll", "pitch", "table", "lift"];
+const DEFAULTS = { preset: 0, seconds: 30, scale: 200, from_t: 10, x: 0.55, y: 0, yaw: 90, roll: 0, pitch: 0, table: 0.16, lift: 0 };
+const P = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem("homeostat-layout") || "{}"));
+let base = null, baseScale = null, baseKey = "", reachMap = null, sweep = null;
+let quick = null, quickKey = "", checking = false, tool = "move";
+const COL = { ok: "#2e7d4f", blocked: "#e39b25", reach: "#e0533d", sweep: "#8e5cc9", after: "#cfcdc4", plain: "#1d1e20" };
+
+// ------------------------------------------------------------------ geometry (mirrors plan.place_from_base)
+function rotXY(roll, pitch) {
+  const r = roll * Math.PI / 180, p = pitch * Math.PI / 180, cr = Math.cos(r), sr = Math.sin(r), cp = Math.cos(p), sp = Math.sin(p);
+  // Ry(pitch) @ Rx(roll)
+  return [[cp, sp * sr, sp * cr], [0, cr, -sr], [-sp, cp * sr, cp * cr]];
+}
+function placed() {
+  if (!base) return [];
+  const f = P.scale / baseScale;
+  let W = base.map(v => [v[0] * f, v[1] * f, v[2] * f]);
+  if (P.roll || P.pitch) {
+    const R = rotXY(P.roll, P.pitch);
+    W = W.map(v => [0, 1, 2].map(i => R[i][0] * v[0] + R[i][1] * v[1] + R[i][2] * v[2]));
+    const mx = W.reduce((a, v) => a + v[0], 0) / W.length, my = W.reduce((a, v) => a + v[1], 0) / W.length;
+    const mz = Math.min(...W.map(v => v[2]));
+    W = W.map(v => [v[0] - mx, v[1] - my, v[2] - mz]);
+  }
+  const c = Math.cos(P.yaw * Math.PI / 180), s = Math.sin(P.yaw * Math.PI / 180);
+  return W.map(v => [v[0] * c - v[1] * s + P.x, v[0] * s + v[1] * c + P.y, v[2] + P.table + P.lift / 1000]);
+}
+function reachAt(p) {
+  if (!reachMap) return 1;
+  const r = Math.hypot(p[0], p[1]), a = Math.round((p[2] - reachMap.z0) / reachMap.cell), b = Math.round(r / reachMap.cell);
+  if (a < 0 || b < 0 || a >= reachMap.nz || b >= reachMap.nr) return 0;
+  return reachMap.frac[a][b];
+}
+function inSweep(p) {
+  if (!$("use_sweep").checked || !sweep) return true;
+  const a = Math.atan2(p[1], p[0]) * 180 / Math.PI; return a >= sweep[0] && a <= sweep[1];
+}
+const key = () => JSON.stringify([FIELDS.map(k => P[k]), $("use_sweep").checked]);
+
+// ------------------------------------------------------------------ view
+const cv = $("view"), g = cv.getContext("2d");
+const cam = { yaw: -0.75, pitch: 0.45, zoom: 1.25, target: [0.42, 0, 0.25] };
+function proj(p) {
+  const x = p[0] - cam.target[0], y = p[1] - cam.target[1], z = p[2] - cam.target[2];
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  const x1 = cy * x - sy * y, y1 = sy * x + cy * y, y2 = cp * y1 - sp * z, z2 = sp * y1 + cp * z;
+  const k = 1100 * cam.zoom / (3.0 - y2);
+  return [cv.width / 2 + x1 * k, cv.height * 0.6 - z2 * k, y2];
+}
+function line(a, b, col, w, dash) { const p = proj(a), q = proj(b); g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash || []); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); g.setLineDash([]); }
+function poly(pts, col, w, fill) { g.beginPath(); pts.forEach((p, i) => { const q = proj(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); if (fill) { g.fillStyle = fill; g.fill("evenodd"); } if (col) { g.strokeStyle = col; g.lineWidth = w; g.stroke(); } }
+const ring = (r, z, a0 = -Math.PI, a1 = Math.PI, n = 96) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [r * Math.cos(a), r * Math.sin(a), z]; });
+
+function bands() {
+  // per height row of the reach map: reachable radius intervals
+  const out = [];
+  if (!reachMap) return out;
+  for (let a = 0; a < reachMap.nz; a++) {
+    const row = reachMap.frac[a], iv = []; let start = -1;
+    for (let b = 0; b <= row.length; b++) {
+      const on = b < row.length && row[b] > 0;
+      if (on && start < 0) start = b; if (!on && start >= 0) { iv.push([start * reachMap.cell, (b - 1) * reachMap.cell]); start = -1; }
+    }
+    out.push({ z: reachMap.z0 + a * reachMap.cell, iv });
+  }
+  return out;
+}
+let BANDS = [];
+
+function draw() {
+  g.clearRect(0, 0, cv.width, cv.height);
+  const tz = P.table;
+  // table grid
+  for (let v = -1; v <= 1.0001; v += 0.1) { line([v, -1, tz], [v, 1, tz], "#efeee9", 1.5); line([-1, v, tz], [1, v, tz], "#efeee9", 1.5); }
+  // reach footprint on the table and the ring's outline
+  if (BANDS.length) {
+    const t0 = BANDS[0];
+    if (t0.iv.length) {
+      g.beginPath(); for (const [r0, r1] of t0.iv) { for (const r of [r1, r0]) { if (r <= 0) continue; ring(r, tz).forEach((p, i) => { const q = proj(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); } }
+      g.fillStyle = "rgba(46,125,79,0.07)"; g.fill("evenodd");
+    }
+    for (let a = 0; a < BANDS.length; a += 10) for (const [r0, r1] of BANDS[a].iv) { poly(ring(r1, BANDS[a].z), "rgba(46,125,79,0.35)", 1.5); if (r0 > 0.13) poly(ring(r0, BANDS[a].z), "rgba(46,125,79,0.15)", 1); }
+    for (let k = 0; k < 12; k++) {                            // meridians: outer and inner edge up the height
+      const ang = k * Math.PI / 6, c = Math.cos(ang), s = Math.sin(ang);
+      poly(BANDS.filter(b => b.iv.length).map(b => { const r = b.iv[b.iv.length - 1][1]; return [r * c, r * s, b.z]; }), "rgba(46,125,79,0.35)", 1.2);
+    }
+  }
+  // the painting rig's working sweep
+  if ($("use_sweep").checked && sweep) {
+    for (const a of sweep) line([0, 0, tz], [1.0 * Math.cos(a * Math.PI / 180), 1.0 * Math.sin(a * Math.PI / 180), tz], "#8e5cc9", 2, [10, 8]);
+    poly(ring(1.0, tz, sweep[0] * Math.PI / 180, sweep[1] * Math.PI / 180, 48), "#8e5cc9", 1.5);
+  }
+  // the arm's base column
+  for (const z of [0, 0.2848]) poly(ring(0.065, z, -Math.PI, Math.PI, 32), "#3b6fd6", 2);
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; line([0.065 * Math.cos(a), 0.065 * Math.sin(a), 0], [0.065 * Math.cos(a), 0.065 * Math.sin(a), 0.2848], "#3b6fd6", 2); }
+  line([0, 0, 0], [0.12, 0, 0], "#3b6fd6", 3); line([0, 0, 0], [0, 0.08, 0], "#9db3e6", 2);
+  // the path
+  const W = placed(); if (!W.length) return;
+  const fresh = quick && quickKey === key();
+  const st = i => {
+    if (fresh) { if (i > quick.stop) return COL.after; return [COL.ok, COL.blocked, COL.reach, COL.sweep][quick.status[i]]; }
+    if (!inSweep(W[i])) return COL.sweep; if (reachAt(W[i]) <= 0) return COL.reach; return COL.plain;
+  };
+  // shadow on the table
+  g.globalAlpha = 0.18; for (let i = 1; i < W.length; i++) line([W[i - 1][0], W[i - 1][1], tz], [W[i][0], W[i][1], tz], "#1d1e20", 2); g.globalAlpha = 1;
+  if (W[0][2] > tz + 0.001) line([W[0][0], W[0][1], tz], W[0], "#8f8e89", 9);           // post
+  for (let i = 1; i < W.length; i++) line(W[i - 1], W[i], st(i), 3.2);
+  const a0 = proj(W[0]); g.fillStyle = "#1d1e20"; g.beginPath(); g.arc(a0[0], a0[1], 7, 0, 7); g.fill();
+  if (fresh && quick.stop < W.length) { const q = proj(W[quick.stop]); g.strokeStyle = "#c0392b"; g.lineWidth = 3; g.beginPath(); g.arc(q[0], q[1], 12, 0, 7); g.stroke(); }
+  // centre mark on the table
+  const cx = P.x, cy = P.y; line([cx - 0.02, cy, tz], [cx + 0.02, cy, tz], "#1d1e20", 1.5); line([cx, cy - 0.02, tz], [cx, cy + 0.02, tz], "#1d1e20", 1.5);
+}
+
+// ------------------------------------------------------------------ panel
+function stats() {
+  const W = placed(); if (!W.length) return;
+  const lo = [0, 1, 2].map(k => Math.min(...W.map(v => v[k]))), hi = [0, 1, 2].map(k => Math.max(...W.map(v => v[k])));
+  let len = 0; for (let i = 1; i < W.length; i++) len += Math.hypot(W[i][0] - W[i - 1][0], W[i][1] - W[i - 1][1], W[i][2] - W[i - 1][2]);
+  const inside = W.filter(p => reachAt(p) > 0 && inSweep(p)).length;
+  const rows = [["Size", `${hi.map((h, k) => ((h - lo[k]) * 1000).toFixed(0)).join(" × ")} mm (x × y × z)`],
+    ["Strand", `${(len * 1000).toFixed(0)} mm, ${W.length} points`],
+    ["Inside reach", `<span class="${inside === W.length ? "good" : "bad"}">${inside} of ${W.length} points</span>`],
+    ["Anchor", W[0][2] > P.table + 0.001 ? `on a ${((W[0][2] - P.table) * 1000).toFixed(0)} mm post` : "on the table"]];
+  const fresh = quick && quickKey === key();
+  if (checking) rows.push(["Printable", `<span class="muted">checking…</span>`]);
+  else if (fresh) {
+    const pct = quick.total_mm ? 100 * quick.printable_mm / quick.total_mm : 0;
+    const why = ["", "nothing can reach it past the strand already printed", "the arm can't reach it", "it's outside the working sweep"][quick.stop < W.length ? quick.status[quick.stop] : 0];
+    rows.push(["Printable", `<span class="${pct >= 99.9 ? "good" : "bad"}">${pct.toFixed(0)}% (${quick.printable_mm.toFixed(0)} of ${quick.total_mm.toFixed(0)} mm)</span>`]);
+    if (quick.stop < W.length) rows.push(["Stops at", `point ${quick.stop}: ${why}`]);
+    rows.push(["", `<span class="muted">Quick check: optimistic. Plan to be sure.</span>`]);
+  } else rows.push(["Printable", `<span class="muted">not checked for this placement</span>`]);
+  $("stats").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  const f = v => +(+v).toFixed(4);
+  $("cmd").textContent = `python plan.py --from-t ${f(P.from_t)} --seconds ${f(P.seconds)} --scale ${f(P.scale)} --x ${f(P.x)} --y ${f(P.y)} --yaw ${f(P.yaw)} --roll ${f(P.roll)} --pitch ${f(P.pitch)} --table ${f(P.table)} --lift ${f(P.lift / 1000)}`;
+}
+function render() { draw(); stats(); }
+function syncFields() { for (const k of FIELDS) if (document.activeElement !== $(k)) $(k).value = +(+P[k]).toFixed(k === "x" || k === "y" || k === "table" ? 3 : 2); }
+
+// ------------------------------------------------------------------ server
+const qs = o => new URLSearchParams(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)]))).toString();
+const body = () => Object.assign({}, P, { lift: P.lift / 1000, use_sweep: $("use_sweep").checked });
+async function loadShape() {
+  const k = [P.preset, P.seconds, P.scale, P.from_t].join();
+  if (k === baseKey) return;
+  baseKey = k;
+  const r = await fetch("/api/shape?" + qs({ preset: P.preset, seconds: P.seconds, scale: P.scale, from_t: P.from_t }));
+  const d = await r.json(); if (!r.ok) { $("hint").textContent = d.error; return; }
+  if (k !== baseKey) return;
+  base = d.base; baseScale = d.scale; render();
+}
+let reachTable = null;
+async function loadReach() {
+  const t = +(+P.table).toFixed(3); if (t === reachTable) return; reachTable = t;
+  $("hint").textContent = "Working out the reach at this table height…";
+  const d = await (await fetch("/api/reach?table=" + t)).json();
+  if (t !== reachTable) return;
+  reachMap = d; BANDS = bands(); setHint(); render();
+}
+let qTimer = null, qSeq = 0;
+function scheduleQuick(now) { clearTimeout(qTimer); if (!now && !$("auto").checked) return; qTimer = setTimeout(runQuick, now ? 0 : 500); }
+async function runQuick() {
+  await loadShape();
+  const k = key(), seq = ++qSeq; checking = true; stats();
+  try {
+    const r = await fetch("/api/quick", { method: "POST", body: JSON.stringify(body()) });
+    const d = await r.json(); if (seq !== qSeq || r.status === 409) return;
+    if (!r.ok) throw new Error(d.error);
+    quick = d; quickKey = k;
+  } catch (e) { $("hint").textContent = "Check failed: " + e.message; }
+  finally { if (seq === qSeq) { checking = false; render(); } }
+}
+function changed(opts = {}) {
+  localStorage.setItem("homeostat-layout", JSON.stringify(P));
+  syncFields(); render();
+  if (opts.shape) setTimeout(loadShape, 250);
+  if (opts.reach) loadReach();
+  if (!opts.live) scheduleQuick();
+}
+
+// ------------------------------------------------------------------ tools
+const HINTS = { orbit: "Drag to turn the view. Wheel zooms. Right-drag turns the view in any tool.",
+  move: "Drag to slide the path across the table. Wheel zooms, right-drag turns the view.",
+  rotate: "Drag sideways to turn the path about its vertical axis. Shift-drag up and down tilts it about Y.",
+  scale: "Drag up to make it bigger, down to make it smaller. Wheel zooms, right-drag turns the view." };
+function setHint() { $("hint").textContent = HINTS[tool]; }
+function setTool(t) { tool = t; document.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("on", b.dataset.tool === t)); setHint(); }
+document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+addEventListener("keydown", e => { if (e.target.tagName === "INPUT") return; const t = { v: "orbit", m: "move", r: "rotate", s: "scale" }[e.key.toLowerCase()]; if (t) setTool(t); });
+
+function screenPerMetre() {   // screen motion for 1 cm along world x and y, at the object's centre on the table
+  const c = [P.x, P.y, P.table], o = proj(c), ax = proj([c[0] + 0.01, c[1], c[2]]), ay = proj([c[0], c[1] + 0.01, c[2]]);
+  return [[(ax[0] - o[0]) / 0.01, (ay[0] - o[0]) / 0.01], [(ax[1] - o[1]) / 0.01, (ay[1] - o[1]) / 0.01]];
+}
+let drag = null;
+cv.addEventListener("contextmenu", e => e.preventDefault());
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  const sc = cv.width / cv.getBoundingClientRect().width;
+  drag = { x: e.clientX, y: e.clientY, sc, mode: e.button === 2 || e.button === 1 || tool === "orbit" ? "orbit" : tool, moved: false };
+});
+cv.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = (e.clientX - drag.x) * drag.sc, dy = (e.clientY - drag.y) * drag.sc; drag.x = e.clientX; drag.y = e.clientY;
+  if (!dx && !dy) return;
+  if (drag.mode === "orbit") { cam.yaw -= dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
+  drag.moved = true;
+  if (drag.mode === "move") {
+    const [[a, b], [c, d]] = screenPerMetre(), det = a * d - b * c; if (Math.abs(det) < 1e-6) return;
+    P.x += (d * dx - b * dy) / det; P.y += (-c * dx + a * dy) / det;
+  } else if (drag.mode === "rotate") {
+    if (e.shiftKey) P.pitch = Math.max(-90, Math.min(90, P.pitch - dy * 0.25)); else P.yaw = ((P.yaw + dx * 0.25 + 540) % 360) - 180;
+  } else if (drag.mode === "scale") {
+    P.scale = Math.max(20, Math.min(1000, P.scale * Math.exp(-dy * 0.003)));
+  }
+  changed({ live: true });
+});
+cv.addEventListener("pointerup", () => {
+  if (drag && drag.moved) {
+    P.x = +P.x.toFixed(3); P.y = +P.y.toFixed(3); P.yaw = +P.yaw.toFixed(1); P.pitch = +P.pitch.toFixed(1); P.scale = Math.round(P.scale);
+    changed({ shape: drag.mode === "scale" });
+  }
+  drag = null;
+});
+cv.addEventListener("wheel", e => { e.preventDefault(); cam.zoom = Math.max(0.3, Math.min(8, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+
+for (const k of FIELDS) $(k).addEventListener("change", () => {
+  const v = parseFloat($(k).value);
+  if (!isFinite(v)) { syncFields(); return; }
+  P[k] = k === "preset" ? Math.max(0, Math.round(v)) : k === "scale" ? Math.max(10, Math.min(1000, v)) : k === "seconds" ? Math.max(1, v) : k === "from_t" || k === "lift" ? Math.max(0, v) : v;
+  changed({ shape: ["preset", "seconds", "scale", "from_t"].includes(k), reach: k === "table" });
+});
+$("use_sweep").onchange = () => changed();
+$("flat").onclick = () => { P.roll = 0; P.pitch = 0; changed(); };
+$("fit").onclick = () => {          // largest scale at which every point is inside the reach (and sweep), same centre
+  if (!base || !reachMap) return;
+  const keep = P.scale, ok = s => { P.scale = s; return placed().every(p => reachAt(p) > 0 && inSweep(p)); };
+  let lo = 10, hi = 1000;
+  if (!ok(lo)) { P.scale = keep; $("hint").textContent = "Even at 10 mm per 90° part of it is outside the reach here: move it first."; return; }
+  for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (ok(m)) lo = m; else hi = m; }
+  P.scale = Math.floor(lo * 0.97); changed({ shape: true });
+};
+function frameObject() { const W = placed(); if (!W.length) return; cam.target = [0, 1, 2].map(k => W.reduce((a, v) => a + v[k], 0) / W.length);
+  const size = Math.max(...[0, 1, 2].map(k => Math.max(...W.map(v => v[k])) - Math.min(...W.map(v => v[k]))));
+  cam.zoom = Math.max(1.2, Math.min(12, 1.1 / size)); draw(); }
+$("view-obj").onclick = frameObject;
+$("view-all").onclick = () => { Object.assign(cam, { zoom: 1.0, target: [0.3, 0, 0.3] }); draw(); };
+$("quick").onclick = () => scheduleQuick(true);
+
+// ------------------------------------------------------------------ plan jobs
+async function startPlan(check) {
+  const r = await fetch("/api/plan", { method: "POST", body: JSON.stringify(Object.assign(body(), { check })) });
+  const d = await r.json(); if (!r.ok) { $("jobOut").innerHTML = `<span class="bad">${d.error}</span>`; return; }
+  pollJob();
+}
+$("plan").onclick = () => startPlan(false);
+$("planCheck").onclick = () => startPlan(true);
+async function pollJob() {
+  const j = await (await fetch("/api/job")).json();
+  const running = j.state === "running";
+  $("plan").disabled = $("planCheck").disabled = running;
+  $("log").hidden = !j.log.length; $("log").textContent = j.log.join("\n"); $("log").scrollTop = 1e9;
+  if (running) $("jobOut").innerHTML = `<span class="muted">Planning… this takes a minute or two${j.log.some(l => l.includes("armster")) ? ", plus the arm check" : ""}.</span>`;
+  else if (j.state === "done" && j.result) {
+    const r = j.result, c = r.check;
+    $("jobOut").innerHTML = `<div class="card"><b class="${r.fails ? "bad" : "good"}">${(100 * r.printable_mm / r.total_mm).toFixed(0)}% printable</b> (${r.printable_mm.toFixed(0)} of ${r.total_mm.toFixed(0)} mm; ${r.fails} of ${r.points} points without a safe pose)` +
+      (c ? `<br>Arm check: IK refused ${c.ik_refused}, clashes ${c.clashes}, trajectory errors ${c.traj_errors}, worst joint difference ${c.worst_dq}° <b class="${c.ik_refused + c.clashes + c.traj_errors ? "bad" : "good"}">${c.ik_refused + c.clashes + c.traj_errors ? "problems" : "all clear"}</b>` : "<br><span class='muted'>Not checked on the arm.</span>") +
+      `<br><a href="${r.viewer}" target="_blank" rel="noopener">Open ${r.name} in the viewer</a></div>`;
+  } else if (j.state === "failed") $("jobOut").innerHTML = `<span class="bad">The plan failed: see the log.</span>`;
+  if (running) setTimeout(pollJob, 1500);
+}
+
+// ------------------------------------------------------------------ start
+(async function () {
+  syncFields(); setTool("move");
+  fetch("/api/sweep").then(r => r.json()).then(function poll(d) {
+    if (d.state === "loading") return setTimeout(() => fetch("/api/sweep").then(r => r.json()).then(poll), 1500);
+    sweep = d.sweep; $("sweepInfo").textContent = sweep ? `(${sweep[0]}° to ${sweep[1]}°)` : `(${d.state})`;
+    $("use_sweep").disabled = !sweep; render();
+  });
+  await Promise.all([loadShape(), loadReach()]);
+  frameObject(); scheduleQuick(true); pollJob();
+})();
+</script>
+</body></html>

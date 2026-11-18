@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "editor",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["arm/editor.py"],
+      "port": 8792
+    }
+  ]
+}

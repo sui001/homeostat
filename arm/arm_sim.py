@@ -15,7 +15,7 @@ Writes plan_checked.json next to the plan.
 """
 import os, sys, json, math
 import numpy as np
-sys.path.insert(0, os.path.expanduser("~/kinova")); import kenv; kenv.load()
+sys.path.insert(0, os.path.expanduser("~/kinova")); import kenv; kenv.load(); import armlock
 from kortex_api.TCPTransport import TCPTransport
 from kortex_api.RouterClient import RouterClient
 from kortex_api.SessionManager import SessionManager
@@ -37,8 +37,13 @@ if abs(d["params"].get("nozzle", gen3.ARM_TCP) - gen3.NOZZLE) > 1e-6:
 W = np.array(d["strand"]); wps = d["waypoints"]; table = d["params"]["table"]
 s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
 S = np.arange(0, s[-1] + 1e-9, 0.001); dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
-if d['params']['lift'] > 0: dense, S = plan.with_post(W, dense, S, table)
+if plan.needs_post(W, table): dense, S = plan.with_post(W, dense, S, table)
 
+# no motion here, but a second session can upset one that is driving the arm (see ~/kinova/armlock.py)
+try:
+    _lock = armlock.take("arm_sim check (no motion)", wait=2.0)
+except armlock.Busy as e:
+    sys.exit("The arm is in use: %s. Not checking." % e)
 t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
 info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]
 info.session_inactivity_timeout = 60000; info.connection_inactivity_timeout = 2000
@@ -110,4 +115,4 @@ try:
                           worst_hot_mm=worst_hot * 1000, worst_arm_mm=worst_arm * 1000)
     json.dump(d, open(PLAN.replace(".json", "_checked.json"), "w"))
 finally:
-    sm.CloseSession(); r.SetActivationStatus(False)
+    sm.CloseSession(); r.SetActivationStatus(False); _lock.release()
