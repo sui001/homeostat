@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+air_run_log.json
+*.log

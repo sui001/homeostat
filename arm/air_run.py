@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Air-run a homeostat print plan on the arm: the planned path, raised clear of the desk, no extrusion.
+
+Without KINOVA_CONFIRM=yes it validates every move with the arm and moves nothing.
+
+    ~/kinova-py310/bin/python air_run.py spiral_std200_checked.json            # check only
+    KINOVA_CONFIRM=yes ~/kinova-py310/bin/python air_run.py spiral_std200_checked.json
+
+Env:
+  AIR_RAISE_MM   how far above the planned path to run it (default 20; more pushes J5 toward its limit)
+  AIR_SPEED      mm/s along the strand (default 10, the planned print speed)
+  AIR_BLEND_MM   blending radius at each waypoint so it flows instead of stopping every 2 mm (default 0.8)
+
+Follows the ~/kinova conventions: takes the arm lock, refuses unless the arm is idle at Home,
+and Ctrl-C (or any error) sends Stop(). Sequence: Home -> above the start -> along the path ->
+straight up -> back to Home by a joint move.
+"""
+import os, sys, json, math, time, threading
+import numpy as np
+sys.path.insert(0, os.path.expanduser("~/kinova"))
+import kenv; kenv.load()
+import armlock, waypoint, gen3
+from kortex_api.TCPTransport import TCPTransport
+from kortex_api.RouterClient import RouterClient
+from kortex_api.SessionManager import SessionManager
+from kortex_api.autogen.client_stubs.BaseClientRpc import BaseClient
+from kortex_api.autogen.client_stubs.BaseCyclicClientRpc import BaseCyclicClient
+from kortex_api.autogen.client_stubs.ControlConfigClientRpc import ControlConfigClient
+from kortex_api.autogen.messages import Base_pb2, Session_pb2
+
+PLAN = sys.argv[1] if len(sys.argv) > 1 else "spiral_std200_checked.json"
+RAISE = float(os.environ.get("AIR_RAISE_MM", 20)) / 1000
+SPEED = float(os.environ.get("AIR_SPEED", 10)) / 1000
+BLEND = float(os.environ.get("AIR_BLEND_MM", 0.8)) / 1000
+ARMED = os.environ.get("KINOVA_CONFIRM") == "yes"
+CHUNK = 40
+HOVER = float(os.environ.get("AIR_HOVER_MM", 15)) / 1000   # extra height for the approach and the retreat
+HOME_TOL = 2.0          # deg
+
+d = json.load(open(PLAN))
+wps = [w for w in d["waypoints"] if w["ok"]]
+if not all(w["ok"] for w in d["waypoints"]):
+    print("NOTE: %d planned points are unreachable and are skipped" % sum(not w["ok"] for w in d["waypoints"]))
+tips = np.array([w["tip"] for w in wps]) + [0, 0, RAISE]
+eul = [w["euler"] for w in wps]
+print("plan %s: %d points, %.0f mm, raised %.0f mm -> tip z %.0f..%.0f mm"
+      % (PLAN, len(wps), 1000 * np.linalg.norm(np.diff(tips, axis=0), axis=1).sum(), RAISE * 1000,
+         tips[:, 2].min() * 1000, tips[:, 2].max() * 1000))
+
+
+def cart_list(points, eulers, speed, blend, ang=15.0):
+    wl = Base_pb2.WaypointList(); wl.use_optimal_blending = False
+    for k, (p, e) in enumerate(zip(points, eulers)):
+        wp = wl.waypoints.add(); wp.name = "w%d" % k
+        cw = wp.cartesian_waypoint
+        cw.pose.x, cw.pose.y, cw.pose.z = [float(v) for v in p]
+        cw.pose.theta_x, cw.pose.theta_y, cw.pose.theta_z = [float(v) for v in e]
+        cw.reference_frame = Base_pb2.CARTESIAN_REFERENCE_FRAME_BASE
+        cw.maximum_linear_velocity = speed; cw.maximum_angular_velocity = ang
+        cw.blending_radius = blend if k < len(points) - 1 else 0.0
+    return wl
+
+
+above = tips[0] + [0, 0, HOVER]
+up = tips[-1] + [0, 0, HOVER]
+LIMITS = {1: 128.9, 2: 147.8, 4: 120.3}   # joint index -> |limit| deg, from the arm
+MARGIN = 3.0
+MAX_STEP = 6.0                            # deg J1-J5 may move between neighbouring points
+JV = float(os.environ.get("AIR_JV", 5.0))          # deg/s cap per joint, keeps joint acceleration under the arm's 51 deg/s^2
+MIN_DT = float(os.environ.get("AIR_MIN_DT", 0.3))  # s per waypoint at least
+FINE = 2.0                                # deg per waypoint after splitting
+MAX_ROLL = 30.0                           # J6 only turns the tool about its own axis
+
+
+def joint_list(qs, durations, blend=True):
+    wl = Base_pb2.WaypointList(); wl.use_optimal_blending = blend
+    for k, (q, du) in enumerate(zip(qs, durations)):
+        wp = wl.waypoints.add(); wp.name = "j%d" % k
+        wp.angular_waypoint.angles.extend([waypoint.wrap(v) for v in q])
+        wp.angular_waypoint.duration = float(du)
+    return wl
+
+
+t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
+info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]
+info.session_inactivity_timeout = 60000; info.connection_inactivity_timeout = 2000
+sm = SessionManager(r); sm.CreateSession(info)
+base = BaseClient(r); cyc = BaseCyclicClient(r)
+lock = None
+try:
+    tt = ControlConfigClient(r).GetToolConfiguration().tool_transform
+    if abs(tt.z - 0.2) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
+        sys.exit("Tool transform on the arm is %s, the plan assumes z = 0.200 m. Stopping." % [tt.x, tt.y, tt.z])
+    home = None
+    req = Base_pb2.RequestedActionType(); req.action_type = Base_pb2.REACH_JOINT_ANGLES
+    for a in base.ReadAllActions(req).action_list:
+        if a.name.strip().lower() == "home":
+            home = [j.value for j in base.ReadAction(a.handle).reach_joint_angles.joint_angles.joint_angles]
+    cur = [a.position for a in cyc.RefreshFeedback().actuators]
+    off = max(abs(x) for x in waypoint.travel(cur, home))
+    print("arm at %s, %.1f deg from Home" % ([round(a, 1) for a in cur], off))
+    if off > HOME_TOL:
+        sys.exit("Refusing: not at Home. Park it first:\n  KINOVA_TARGET=Home KINOVA_CONFIRM=yes ~/kinova-py310/bin/python ~/kinova/goto_pose.py")
+
+    # The arm's own IK for every raised point, each seeded with the one before, so the joint path is
+    # continuous and is exactly what gets run. (Cartesian waypoints let the arm pick its own branch
+    # mid-path once the path is raised: it ran J5 into its limit.)
+    def ik(pt, e, seed):
+        ikd = Base_pb2.IKData(); p = ikd.cartesian_pose
+        p.x, p.y, p.z = [float(v) for v in pt]; p.theta_x, p.theta_y, p.theta_z = [float(v) for v in e]
+        for q in seed: ikd.guess.joint_angles.add().value = q
+        return np.array([waypoint.wrap(j.value) for j in base.ComputeInverseKinematics(ikd).joint_angles])
+    def rot_lerp(R0, R1, f):
+        Rr = R0.T @ R1; ang = math.acos(max(-1.0, min(1.0, (np.trace(Rr) - 1) / 2)))
+        if ang < 1e-9: return R0
+        ax = np.array([Rr[2, 1] - Rr[1, 2], Rr[0, 2] - Rr[2, 0], Rr[1, 0] - Rr[0, 1]]) / (2 * math.sin(ang))
+        K = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]]); a = f * ang
+        return R0 @ (np.eye(3) + math.sin(a) * K + (1 - math.cos(a)) * K @ K)
+
+    def dstep(a_, b_):
+        return np.abs(((b_ - a_ + 180) % 360) - 180)
+
+    # every pose along the way: above the start, the path, straight up at the end
+    P = [above] + list(tips) + [up]; E = [eul[0]] + eul + [eul[-1]]
+    q = ik(P[0], E[0], wps[0]["joints"]); chain = [q]; seglen = []
+    for k in range(1, len(P)):
+        qk = ik(P[k], E[k], q); n = int(math.ceil(dstep(q, qk)[:5].max() / FINE))
+        if n > 1:   # split the segment so no joint swings more than FINE deg between waypoints
+            R0, R1 = gen3.from_euler(*E[k - 1]), gen3.from_euler(*E[k])
+            for j in range(1, n):
+                f = j / n; qj = ik(P[k - 1] + f * (P[k] - P[k - 1]), gen3.euler_xyz(rot_lerp(R0, R1, f)), chain[-1])
+                chain.append(qj); seglen.append(np.linalg.norm(P[k] - P[k - 1]) / n)
+            qk = ik(P[k], E[k], chain[-1])
+            seglen.append(np.linalg.norm(P[k] - P[k - 1]) / n)
+        else:
+            seglen.append(np.linalg.norm(P[k] - P[k - 1]))
+        chain.append(qk); q = qk
+    q_above = chain[0]
+    steps = [dstep(a_, b_) for a_, b_ in zip(chain[:-1], chain[1:])]
+    worst = max(st[:5].max() for st in steps); roll = max(st[5] for st in steps)
+    near = min(lim - abs(q[j]) for q in chain for j, lim in LIMITS.items())
+    j5min = min(abs(q[4]) for q in chain)
+    print("IK chain: %d poses, biggest step J1-J5 %.1f deg, J6 %.1f deg, closest to a joint limit %.1f deg, |J5| >= %.1f"
+          % (len(chain), worst, roll, near, j5min))
+    if worst > MAX_STEP or roll > MAX_ROLL or near < MARGIN:
+        sys.exit("Joint path not safe to run (step > %.0f deg or within %.0f deg of a limit). Not moving." % (MAX_STEP, MARGIN))
+    dur = [max(L / SPEED, st.max() / JV, MIN_DT) for L, st in zip(seglen, steps)]
+    # one list from Home: joint move to above the start, down onto the path, the spiral, straight up
+    approach = waypoint.duration(cur, q_above, 20.0)
+    moves = [("Home -> start -> spiral -> up (%d joint waypoints)" % len(chain), joint_list(chain, [approach] + dur))]
+    # validate everything before any motion (each Cartesian list is validated from where the arm stands)
+    bad = 0
+    for name, wl in moves:
+        p = waypoint.problems(base, wl)
+        if p:
+            bad += 1; print("REFUSED  %-34s %s" % (name, "; ".join(p[:3])))
+    if bad:
+        print("retrying without blending")
+        moves = [(n, wl) for n, wl in moves]
+        moves[0][1].use_optimal_blending = False
+        bad = sum(bool(waypoint.problems(base, wl)) for n, wl in moves)
+    print("validated %d moves with the arm: %d refused" % (len(moves), bad))
+    if bad:
+        sys.exit("Not moving.")
+    est = sum(dur) + approach
+    if not ARMED:
+        print("Check only (about %.0f s of path at %.0f mm/s). Set KINOVA_CONFIRM=yes to run it." % (est, SPEED * 1000))
+        sys.exit(0)
+
+    lock = armlock.take("homeostat air-run")
+    print("ARMED: running in about 3 s. Ctrl-C stops the arm.")
+    time.sleep(3)
+
+    # log where the tool really goes
+    log, stop_log = [], threading.Event()
+    def sampler():
+        while not stop_log.is_set():
+            try: b = cyc.RefreshFeedback().base
+            except Exception: return
+            log.append((time.time(), b.tool_pose_x, b.tool_pose_y, b.tool_pose_z)); time.sleep(0.05)
+        return
+    th = threading.Thread(target=sampler, daemon=True); th.start()
+
+    def run(name, wl, timeout):
+        done, res = threading.Event(), {}
+        def on_event(n):
+            ev = Base_pb2.ActionEvent.Name(n.action_event)
+            if ev in ("ACTION_END", "ACTION_ABORT"):
+                res["ev"] = ev; res["n"] = n; done.set()
+        h = base.OnNotificationActionTopic(on_event, Base_pb2.NotificationOptions())
+        t0 = time.time()
+        base.ExecuteWaypointTrajectory(wl)
+        ok = done.wait(timeout); base.Unsubscribe(h)
+        if not ok:
+            base.Stop(); raise SystemExit("TIMED OUT on %s after %.0f s. Sent Stop()." % (name, timeout))
+        print("  %-34s %s in %.1f s" % (name, res["ev"], time.time() - t0))
+        if res["ev"] == "ACTION_ABORT":
+            raise SystemExit("ABORTED on %s: %s" % (name, res["n"]))
+
+    t_start = time.time()
+    for name, wl in moves:
+        n = len(wl.waypoints)
+        run(name, wl, 60 + 2 * est)
+    # home by a joint move, from straight above the spiral's end
+    cur = [a.position for a in cyc.RefreshFeedback().actuators]
+    run("back to Home (joint move)", waypoint.build(cur, home, 20.0, "home"), 60)
+    stop_log.set(); th.join()
+    print("done in %.0f s" % (time.time() - t_start))
+
+    # how closely the tool followed the raised path, over the path part only
+    L = np.array(log)[:, 1:]
+    dense = np.concatenate([np.linspace(a, b, 20, endpoint=False) for a, b in zip(tips[:-1], tips[1:])] + [tips[-1:]])
+    near = np.array([np.linalg.norm(dense - p, axis=1).min() for p in L])
+    on = near < 0.02     # samples taken while on the path, not during approach / return
+    print("tracking: %d samples on the path, deviation median %.2f mm, max %.2f mm"
+          % (on.sum(), np.median(near[on]) * 1000, near[on].max() * 1000))
+    json.dump(dict(plan=PLAN, raise_mm=RAISE * 1000, speed=SPEED * 1000, log=log), open("air_run_log.json", "w"))
+except KeyboardInterrupt:
+    base.Stop(); print("\nCtrl-C: sent Stop().")
+except SystemExit:
+    raise
+except Exception:
+    try: base.Stop()
+    except Exception: pass
+    raise
+finally:
+    if lock: lock.release()
+    sm.CloseSession(); r.SetActivationStatus(False)
