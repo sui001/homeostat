@@ -4,8 +4,14 @@ see what is printable, then plan it and check it on the arm. Cura's build plate,
 
     python editor.py            then open http://localhost:8792
 
-Local only (binds 127.0.0.1). It never moves the arm: "Plan and check" runs plan.py here, then
-arm_sim.py on armster, which only asks the arm for IK and trajectory validation.
+It never moves the arm: "Plan and check" runs plan.py, then arm_sim.py, which only asks the arm for IK
+and trajectory validation.
+
+Where it runs:
+  on a laptop        binds 127.0.0.1; the arm check copies the scripts to armster and runs it there by ssh.
+  on armster         EDITOR_ON_ARM=1: everything runs locally (homeostat-editor.service does this).
+EDITOR_HOST        address to listen on: 127.0.0.1 (default), or "tailscale" for this machine's
+                   Tailscale address only, so it is not on the arm's wired network or the Wi-Fi.
 """
 import json, math, os, re, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -16,6 +22,9 @@ import plan, editor_core as ec
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLANS = os.path.join(HERE, "plans")
 PORT = int(os.environ.get("EDITOR_PORT", 8792))
+HOST = os.environ.get("EDITOR_HOST", "127.0.0.1")
+ON_ARM = os.environ.get("EDITOR_ON_ARM") == "1"
+LAYOUT = os.path.expanduser("~/kinova/layout.json")
 PI = os.environ.get("ARM_HOST", "pi@armster")
 PI_DIR = "tools/claude/homeostat"
 DEPLOY = ["gen3.py", "wrist.py", "plan.py", "homeostat_path.py", "arm_sim.py", "air_run.py"]
@@ -56,9 +65,12 @@ def reach(table):
 def load_sweep():
     """The working sweep the painting rig allows (armster ~/kinova/layout.json 'sector'), if reachable."""
     try:
-        out = subprocess.run(["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", PI, "cat ~/kinova/layout.json"],
-                             capture_output=True, text=True, timeout=15)
-        sec = json.loads(out.stdout)["sector"]
+        if ON_ARM:
+            sec = json.load(open(LAYOUT))["sector"]
+        else:
+            out = subprocess.run(["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", PI, "cat ~/kinova/layout.json"],
+                                 capture_output=True, text=True, timeout=15)
+            sec = json.loads(out.stdout)["sector"]
         _sweep.update(state="ok", sweep=[float(sec["from"]), float(sec["to"])])
     except Exception as e:
         _sweep.update(state="unavailable (%s)" % str(e).splitlines()[0][:60] if str(e) else "unavailable", sweep=None)
@@ -90,7 +102,11 @@ def plan_job(p, check):
         run(args)
         final = out
         check_summary = None
-        if check:
+        if check and ON_ARM:
+            log("checking on the arm (no motion)")
+            run([sys.executable, "arm_sim.py", out], 900)
+            final = os.path.join("plans", name + "_checked.json")
+        elif check:
             log("deploying the scripts to %s and checking on the arm (no motion)" % PI)
             run(["scp", "-q"] + DEPLOY + [out, "%s:%s/" % (PI, PI_DIR)], 120)
             run(["ssh", PI, "cd ~/%s && ~/kinova-py310/bin/python arm_sim.py %s.json" % (PI_DIR, name)], 900)
@@ -174,8 +190,19 @@ class H(BaseHTTPRequestHandler):
             traceback.print_exc(); self.send(400, {"error": str(e)})
 
 
+def listen_address():
+    if HOST != "tailscale":
+        return HOST
+    # Tailscale may still be coming up at boot: fail, and let systemd restart us until it is there
+    out = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=10).stdout.split()
+    if not out:
+        sys.exit("No Tailscale address yet.")
+    return out[0]
+
+
 if __name__ == "__main__":
+    host = listen_address()
     threading.Thread(target=load_sweep, daemon=True).start()
     threading.Thread(target=reach, args=(0.16,), daemon=True).start()   # warm the default table height
-    print("layout editor on http://localhost:%d  (Ctrl-C to stop)" % PORT)
-    ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    print("layout editor on http://%s:%d%s  (Ctrl-C to stop)" % (host, PORT, ", on the arm" if ON_ARM else ""), flush=True)
+    ThreadingHTTPServer((host, PORT), H).serve_forever()

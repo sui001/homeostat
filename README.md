@@ -5,15 +5,21 @@ arm or hot end running into strand it has already printed. Everything is in `arm
 
 ## Layout editor
 
+Runs on armster as the `homeostat-editor` service: open **http://armster:8792** from anything on the
+tailnet. It listens on armster's Tailscale address only, not on the arm's wired network or the Wi-Fi.
+
 ```sh
-python arm/editor.py        # then open http://localhost:8792
+./deploy.sh                 # copy arm/ to armster and (re)start the service
+python arm/editor.py        # or run it on a laptop: http://localhost:8792 (arm check goes over ssh)
 ```
 
-Place, turn, tilt and scale the path inside the arm's reach, like a slicer's build plate. The green
-ring is where the nozzle can get to at all. The path is coloured as you go: printable, blocked by strand
-already printed, out of reach, or outside the painting rig's working sweep. The quick check is
-optimistic; **Plan** runs the real planner, and **Plan and check on the arm** also runs the no-motion
-check on armster. Results land in `arm/plans/` (not in git) with a viewer page each.
+Place, turn, tilt and scale the path inside the arm's reach, like a slicer's build plate: drag the
+path to move it, the orange ring turns it, the red and teal rings tilt it, the corner squares scale it,
+and dragging empty space turns the view. The green dome is where the nozzle can get to at all. The
+path is coloured as you go: printable, blocked by strand already printed, out of reach, or outside the
+painting rig's working sweep. The quick check is optimistic; **Plan** runs the real planner, and
+**Plan and check on the arm** also runs the no-motion arm check. Results land in `arm/plans/` (on
+armster: `~/homeostat-arm/arm/plans`, not in git) with a viewer page each.
 
 ## The scripts
 

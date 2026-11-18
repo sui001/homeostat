@@ -6,9 +6,6 @@
   main { display: flex; gap: 16px; padding: 14px; align-items: flex-start; }
   .stage { flex: 1; min-width: 0; position: relative; }
   canvas { display: block; width: 100%; aspect-ratio: 4 / 3; background: #fff; border: 1px solid #dddcd6; border-radius: 6px; touch-action: none; }
-  .tools { position: absolute; top: 10px; left: 10px; display: flex; flex-direction: column; gap: 4px; }
-  .tools button { width: 86px; text-align: left; }
-  .tools button.on { background: #1d1e20; color: #fff; border-color: #1d1e20; }
   .hint { position: absolute; bottom: 10px; left: 12px; right: 12px; color: #66655f; font-size: 12px; pointer-events: none; }
   aside { width: 360px; flex: none; }
   h1 { font-size: 18px; margin: 0 0 2px; } h2 { font-size: 13px; margin: 14px 0 6px; color: #66655f; font-weight: 600; }
@@ -33,12 +30,6 @@
 <body><main>
 <div class="stage">
   <canvas id="view" width="1600" height="1200" aria-label="3-D view: the arm's reach ring, the table and the placed path"></canvas>
-  <div class="tools" role="toolbar" aria-label="Tools">
-    <button data-tool="orbit">View <span class="muted">V</span></button>
-    <button data-tool="move">Move <span class="muted">M</span></button>
-    <button data-tool="rotate">Turn <span class="muted">R</span></button>
-    <button data-tool="scale">Scale <span class="muted">S</span></button>
-  </div>
   <div class="hint" id="hint"></div>
 </div>
 <aside>
@@ -100,7 +91,7 @@ const FIELDS = ["preset", "seconds", "scale", "from_t", "x", "y", "yaw", "roll",
 const DEFAULTS = { preset: 0, seconds: 30, scale: 200, from_t: 10, x: 0.55, y: 0, yaw: 90, roll: 0, pitch: 0, table: 0.16, lift: 0 };
 const P = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem("homeostat-layout") || "{}"));
 let base = null, baseScale = null, baseKey = "", reachMap = null, sweep = null;
-let quick = null, quickKey = "", checking = false, tool = "move";
+let quick = null, quickKey = "", checking = false;
 const COL = { ok: "#2e7d4f", blocked: "#e39b25", reach: "#e0533d", sweep: "#8e5cc9", after: "#cfcdc4", plain: "#1d1e20" };
 
 // ------------------------------------------------------------------ geometry (mirrors plan.place_from_base)
@@ -207,6 +198,7 @@ function draw() {
   if (fresh && quick.stop < W.length) { const q = proj(W[quick.stop]); g.strokeStyle = "#c0392b"; g.lineWidth = 3; g.beginPath(); g.arc(q[0], q[1], 12, 0, 7); g.stroke(); }
   // centre mark on the table
   const cx = P.x, cy = P.y; line([cx - 0.02, cy, tz], [cx + 0.02, cy, tz], "#1d1e20", 1.5); line([cx, cy - 0.02, tz], [cx, cy + 0.02, tz], "#1d1e20", 1.5);
+  drawHandles(W);
 }
 
 // ------------------------------------------------------------------ panel
@@ -253,7 +245,7 @@ async function loadReach() {
   $("hint").textContent = "Working out the reach at this table height…";
   const d = await (await fetch("/api/reach?table=" + t)).json();
   if (t !== reachTable) return;
-  reachMap = d; BANDS = bands(); setHint(); render();
+  reachMap = d; BANDS = bands(); $("hint").textContent = HINT; render();
 }
 let qTimer = null, qSeq = 0;
 function scheduleQuick(now) { clearTimeout(qTimer); if (!now && !$("auto").checked) return; qTimer = setTimeout(runQuick, now ? 0 : 500); }
@@ -276,49 +268,122 @@ function changed(opts = {}) {
   if (!opts.live) scheduleQuick();
 }
 
-// ------------------------------------------------------------------ tools
-const HINTS = { orbit: "Drag to turn the view. Wheel zooms. Right-drag turns the view in any tool.",
-  move: "Drag to slide the path across the table. Wheel zooms, right-drag turns the view.",
-  rotate: "Drag sideways to turn the path about its vertical axis. Shift-drag up and down tilts it about Y.",
-  scale: "Drag up to make it bigger, down to make it smaller. Wheel zooms, right-drag turns the view." };
-function setHint() { $("hint").textContent = HINTS[tool]; }
-function setTool(t) { tool = t; document.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("on", b.dataset.tool === t)); setHint(); }
-document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => setTool(b.dataset.tool));
-addEventListener("keydown", e => { if (e.target.tagName === "INPUT") return; const t = { v: "orbit", m: "move", r: "rotate", s: "scale" }[e.key.toLowerCase()]; if (t) setTool(t); });
-
+// ------------------------------------------------------------------ handles on the object (like a slicer's)
+const HINT = "Drag the path to move it. Orange ring turns it, red and teal rings tilt it, corner squares scale it. Drag empty space to turn the view; wheel zooms.";
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit = a => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
+function rotAbout(p, c, k, deg) {          // Rodrigues: p turned about the unit axis k through c
+  const t = deg * Math.PI / 180, v = sub3(p, c), ct = Math.cos(t), st = Math.sin(t), kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2], x = cross(k, v);
+  return [0, 1, 2].map(i => c[i] + v[i] * ct + x[i] * st + k[i] * kv * (1 - ct));
+}
+function handles(W) {
+  if (!W || !W.length) return null;
+  const lo = [0, 1, 2].map(k => Math.min(...W.map(v => v[k]))), hi = [0, 1, 2].map(k => Math.max(...W.map(v => v[k])));
+  const c = lo.map((v, k) => (v + hi[k]) / 2), R = 0.55 * Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) + 0.012;
+  const cy = Math.cos(P.yaw * Math.PI / 180), sy = Math.sin(P.yaw * Math.PI / 180);
+  // roll and pitch are applied before the turn, so their axes turn with it
+  const rings = [["yaw", [0, 0, 1], "#e39b25"], ["roll", [cy, sy, 0], "#d1495b"], ["pitch", [-sy, cy, 0], "#139fa0"]].map(([id, ax, col]) => {
+    const h = Math.abs(ax[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0], u = unit(cross(ax, h)), v = cross(ax, u);
+    const pts = Array.from({ length: 73 }, (_, i) => { const t = 2 * Math.PI * i / 72; return [0, 1, 2].map(k => c[k] + R * (Math.cos(t) * u[k] + Math.sin(t) * v[k])); });
+    return { id, ax, col, pts };
+  });
+  const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(([x, y]) => [x, y, hi[2]]);
+  return { lo, hi, c, R, rings, corners };
+}
+const hkey = h => h ? h.kind + (h.id || "") + (h.i === undefined ? "" : h.i) : "";
+let hover = null;
+function drawHandles(W) {
+  const H = handles(W); if (!H) return;
+  const { lo, hi } = H, box = [];
+  for (const z of [lo[2], hi[2]]) box.push([[lo[0], lo[1], z], [hi[0], lo[1], z]], [[hi[0], lo[1], z], [hi[0], hi[1], z]], [[hi[0], hi[1], z], [lo[0], hi[1], z]], [[lo[0], hi[1], z], [lo[0], lo[1], z]]);
+  for (const [x, y] of [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]]) box.push([[x, y, lo[2]], [x, y, hi[2]]]);
+  for (const [a, b] of box) line(a, b, "#b9b7af", 1.2, [6, 6]);
+  const active = drag && drag.mode !== "orbit" ? drag.key : hkey(hover);
+  for (const r of H.rings) { const on = active === "ring" + r.id; g.globalAlpha = on ? 1 : 0.7; poly(r.pts, r.col, on ? 7 : 3.5); g.globalAlpha = 1; }
+  H.corners.forEach((p, i) => {
+    const q = proj(p), on = active === "scale" + i, s = on ? 13 : 9;
+    g.fillStyle = on ? "#1d1e20" : "#fff"; g.strokeStyle = "#1d1e20"; g.lineWidth = 2;
+    g.fillRect(q[0] - s, q[1] - s, 2 * s, 2 * s); g.strokeRect(q[0] - s, q[1] - s, 2 * s, 2 * s);
+  });
+  if (drag && drag.label && drag.moved) {
+    const t = drag.label(); g.font = "28px system-ui"; const w = g.measureText(t).width + 20;
+    g.fillStyle = "rgba(29,30,32,0.85)"; g.fillRect(drag.x + 24, drag.y - 44, w, 40); g.fillStyle = "#fff"; g.fillText(t, drag.x + 34, drag.y - 14);
+  }
+}
+function segDist(m, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((m[0] - a[0]) * dx + (m[1] - a[1]) * dy) / l));
+  return Math.hypot(m[0] - a[0] - t * dx, m[1] - a[1] - t * dy);
+}
+function canvasPt(e) { const r = cv.getBoundingClientRect(), sc = cv.width / r.width; return [(e.clientX - r.left) * sc, (e.clientY - r.top) * sc, sc]; }
+function hit(m) {
+  const W = placed(), H = handles(W); if (!H) return null;
+  const tol = 12 * m[2];
+  for (let i = 0; i < 4; i++) { const q = proj(H.corners[i]); if (Math.abs(m[0] - q[0]) < tol && Math.abs(m[1] - q[1]) < tol) return { kind: "scale", i }; }
+  let best = null;
+  for (const r of H.rings) {
+    const q = r.pts.map(proj);
+    for (let i = 1; i < q.length; i++) { const d = segDist(m, q[i - 1], q[i]); if (d < tol * 0.8 && (!best || d < best.d)) best = { kind: "ring", id: r.id, d }; }
+  }
+  if (best) return best;
+  const q = W.map(proj);
+  for (let i = 1; i < q.length; i++) if (segDist(m, q[i - 1], q[i]) < tol) return { kind: "move" };
+  return null;
+}
 function screenPerMetre() {   // screen motion for 1 cm along world x and y, at the object's centre on the table
   const c = [P.x, P.y, P.table], o = proj(c), ax = proj([c[0] + 0.01, c[1], c[2]]), ay = proj([c[0], c[1] + 0.01, c[2]]);
   return [[(ax[0] - o[0]) / 0.01, (ay[0] - o[0]) / 0.01], [(ax[1] - o[1]) / 0.01, (ay[1] - o[1]) / 0.01]];
 }
+const wrap180 = a => ((a + 540) % 360) - 180;
+const cursorFor = h => h ? (h.kind === "move" ? "move" : h.kind === "scale" ? "nwse-resize" : "grab") : "default";
 let drag = null;
 cv.addEventListener("contextmenu", e => e.preventDefault());
 cv.addEventListener("pointerdown", e => {
   cv.setPointerCapture(e.pointerId);
-  const sc = cv.width / cv.getBoundingClientRect().width;
-  drag = { x: e.clientX, y: e.clientY, sc, mode: e.button === 2 || e.button === 1 || tool === "orbit" ? "orbit" : tool, moved: false };
+  const m = canvasPt(e), h = e.button === 0 ? hit(m) : null;
+  drag = { x: m[0], y: m[1], mode: h ? h.kind : "orbit", key: hkey(h), moved: false };
+  if (h && h.kind === "ring") {
+    drag.ring = h.id; const name = { yaw: "Turn", roll: "Tilt X", pitch: "Tilt Y" }[h.id];
+    drag.label = () => name + " " + P[h.id].toFixed(0) + "°";
+  } else if (h && h.kind === "scale") {
+    const c = proj(handles(placed()).c);
+    Object.assign(drag, { c, r0: Math.hypot(m[0] - c[0], m[1] - c[1]) || 1, s0: P.scale, label: () => "Scale " + Math.round(P.scale) + " mm per 90°" });
+  } else if (h) drag.label = () => "x " + P.x.toFixed(3) + "  y " + P.y.toFixed(3) + " m";
+  cv.style.cursor = h && h.kind !== "ring" ? cursorFor(h) : "grabbing";
 });
 cv.addEventListener("pointermove", e => {
-  if (!drag) return;
-  const dx = (e.clientX - drag.x) * drag.sc, dy = (e.clientY - drag.y) * drag.sc; drag.x = e.clientX; drag.y = e.clientY;
+  const m = canvasPt(e);
+  if (!drag) {                      // hover: show what a drag would do
+    const h = hit(m), changedHover = hkey(h) !== hkey(hover);
+    hover = h; cv.style.cursor = cursorFor(h);
+    if (changedHover) draw();
+    return;
+  }
+  const dx = m[0] - drag.x, dy = m[1] - drag.y; drag.x = m[0]; drag.y = m[1];
   if (!dx && !dy) return;
   if (drag.mode === "orbit") { cam.yaw -= dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
   drag.moved = true;
   if (drag.mode === "move") {
     const [[a, b], [c, d]] = screenPerMetre(), det = a * d - b * c; if (Math.abs(det) < 1e-6) return;
     P.x += (d * dx - b * dy) / det; P.y += (-c * dx + a * dy) / det;
-  } else if (drag.mode === "rotate") {
-    if (e.shiftKey) P.pitch = Math.max(-90, Math.min(90, P.pitch - dy * 0.25)); else P.yaw = ((P.yaw + dx * 0.25 + 540) % 360) - 180;
+  } else if (drag.mode === "ring") {
+    // which way the ring runs on screen for +1 degree, at the ring point nearest the pointer
+    const H = handles(placed()), r = H.rings.find(q => q.id === drag.ring);
+    let j = 0, bd = 1e9; r.pts.forEach((p, i) => { const q = proj(p), dd = Math.hypot(q[0] - m[0], q[1] - m[1]); if (dd < bd) { bd = dd; j = i; } });
+    const p0 = proj(r.pts[j]), p1 = proj(rotAbout(r.pts[j], H.c, r.ax, 1)), t = [p1[0] - p0[0], p1[1] - p0[1]], tt = t[0] * t[0] + t[1] * t[1];
+    if (tt < 1e-6) return;
+    P[drag.ring] = wrap180(P[drag.ring] + Math.max(-10, Math.min(10, (dx * t[0] + dy * t[1]) / tt)));
   } else if (drag.mode === "scale") {
-    P.scale = Math.max(20, Math.min(1000, P.scale * Math.exp(-dy * 0.003)));
+    P.scale = Math.max(10, Math.min(1000, drag.s0 * Math.hypot(m[0] - drag.c[0], m[1] - drag.c[1]) / drag.r0));
   }
   changed({ live: true });
 });
 cv.addEventListener("pointerup", () => {
   if (drag && drag.moved) {
-    P.x = +P.x.toFixed(3); P.y = +P.y.toFixed(3); P.yaw = +P.yaw.toFixed(1); P.pitch = +P.pitch.toFixed(1); P.scale = Math.round(P.scale);
+    P.x = +P.x.toFixed(3); P.y = +P.y.toFixed(3); P.yaw = +P.yaw.toFixed(1); P.roll = +P.roll.toFixed(1); P.pitch = +P.pitch.toFixed(1); P.scale = Math.round(P.scale);
     changed({ shape: drag.mode === "scale" });
   }
-  drag = null;
+  drag = null; cv.style.cursor = "default"; draw();
 });
 cv.addEventListener("wheel", e => { e.preventDefault(); cam.zoom = Math.max(0.3, Math.min(8, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
 
@@ -370,7 +435,7 @@ async function pollJob() {
 
 // ------------------------------------------------------------------ start
 (async function () {
-  syncFields(); setTool("move");
+  syncFields(); $("hint").textContent = HINT;
   fetch("/api/sweep").then(r => r.json()).then(function poll(d) {
     if (d.state === "loading") return setTimeout(() => fetch("/api/sweep").then(r => r.json()).then(poll), 1500);
     sweep = d.sweep; $("sweepInfo").textContent = sweep ? `(${sweep[0]}° to ${sweep[1]}°)` : `(${d.state})`;
