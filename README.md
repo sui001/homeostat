@@ -21,6 +21,16 @@ painting rig's working sweep. The quick check is optimistic; **Plan** runs the r
 **Plan and check on the arm** also runs the no-motion arm check. Results land in `arm/plans/` (on
 armster: `~/homeostat-arm/arm/plans`, not in git) with a viewer page each.
 
+### Air-run, Park and the live arm
+
+On armster the editor can also move the arm, after a confirm on the page: **Air-run** follows a
+checked plan raised above its height (1x to 4x; big plans run in parts of up to 900 waypoints), and
+**Park** goes Home. Both leave a print the safe way (`exit_path.py`): back out 50 mm along the nozzle,
+rise 100 mm above the print, then Home, every pose checked against the strand printed so far before
+anything moves. A direct swing to Home from the spiral would put the hot end's duct 6 mm into it.
+While anything moves, Stop is pinned to the top of the page (Esc or Space too), and the arm is drawn
+live from its joint angles.
+
 ## The scripts
 
 | File | What it does |
@@ -28,7 +38,11 @@ armster: `~/homeostat-arm/arm/plans`, not in git) with a viewer page each.
 | `plan.py` | Look-ahead planner: clear nozzle directions per point, a smooth sequence, IK |
 | `arm_sim.py` | Runs on armster. Checks a plan with the arm's own IK and trajectory validation. No motion |
 | `air_run.py` | Runs on armster. Traces a plan on the real arm, raised, no extrusion. Needs `KINOVA_CONFIRM=yes` |
-| `editor.py`, `editor.html`, `editor_core.py` | The layout editor |
+| `editor.py`, `editor.html`, `editor_core.py` | The layout editor (serves the simulator at /sim too) |
+| `homeostat.html` | The homeostat simulator; Send to the arm passes its path to the editor |
+| `exit_path.py`, `safe_park.py` | The checked way out of a print, and Park built on it |
+| `armmove.py` | Running joint waypoint lists, timing fitted to the arm, the live feed |
+| `arm_stop.py` | Sends the arm Stop (the editor's Stop button) |
 | `make_viewer.py`, `viewer_template.html` | One-page 3-D viewer for a plan |
 | `gen3.py`, `wrist.py` | Arm kinematics (calibrated against the arm) and quick wrist estimates |
 | `homeostat_path.py` | The homeostat model, ported from the page, and its 3-D path |

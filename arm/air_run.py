@@ -13,13 +13,14 @@ Env:
 
 Follows the ~/kinova conventions: takes the arm lock, refuses unless the arm is idle at Home,
 and Ctrl-C (or any error) sends Stop(). Sequence: Home -> above the start -> along the path ->
-straight up -> back to Home by a joint move.
+the safe exit (back out along the nozzle, rise above the print, then Home; exit_path.py).
 """
 import os, sys, json, math, time, threading
 import numpy as np
 sys.path.insert(0, os.path.expanduser("~/kinova"))
 import kenv; kenv.load()
-import armlock, waypoint, gen3
+import armlock, waypoint, gen3, exit_path, armmove
+from armmove import joint_list, smooth_times
 from kortex_api.TCPTransport import TCPTransport
 from kortex_api.RouterClient import RouterClient
 from kortex_api.SessionManager import SessionManager
@@ -68,7 +69,6 @@ def cart_list(points, eulers, speed, blend, ang=15.0):
 
 
 above = tips[0] + [0, 0, HOVER]
-up = tips[-1] + [0, 0, HOVER]
 LIMITS = {1: 128.9, 2: 147.8, 4: 120.3}   # joint index -> |limit| deg, from the arm
 MARGIN = 3.0
 MAX_STEP = 6.0                            # deg J1-J5 may move between neighbouring points
@@ -77,38 +77,9 @@ MIN_DT = float(os.environ.get("AIR_MIN_DT", 0.3))  # s per waypoint at least
 ACC = float(os.environ.get("AIR_ACC", 30.0))      # deg/s^2 planned to; the arm refuses over 51.6 (and measures it its own way)
 
 
-def smooth_times(steps, dt, acc, passes=400):
-    """Stretch step times until no joint changes speed faster than acc between steps (from rest, to rest)."""
-    d = [float(t) for t in dt]
-    z = np.zeros_like(np.asarray(steps[0], float))
-    for _ in range(passes):
-        v = [np.asarray(st, float) / t for st, t in zip(steps, d)]
-        worst = 0.0
-        for k in range(len(d) + 1):
-            vp = v[k - 1] if k > 0 else z
-            vn = v[k] if k < len(d) else z
-            span = ((d[k - 1] if k > 0 else 0) + (d[k] if k < len(d) else 0)) / (2 if 0 < k < len(d) else 1)
-            a = np.abs(vn - vp).max() / span
-            if a > acc:
-                f = min(1.5, math.sqrt(a / acc) * 1.01)
-                if k > 0: d[k - 1] *= f
-                if k < len(d): d[k] *= f
-            worst = max(worst, a)
-        if worst <= acc * 1.001:
-            break
-    return d
 SPEED *= FAST
 FINE = min(5.0, 2.0 * FAST)                                # deg per waypoint after splitting
 MAX_ROLL = 30.0                           # J6 only turns the tool about its own axis
-
-
-def joint_list(qs, durations, blend=True):
-    wl = Base_pb2.WaypointList(); wl.use_optimal_blending = blend
-    for k, (q, du) in enumerate(zip(qs, durations)):
-        wp = wl.waypoints.add(); wp.name = "j%d" % k
-        wp.angular_waypoint.angles.extend([waypoint.wrap(v) for v in q])
-        wp.angular_waypoint.duration = float(du)
-    return wl
 
 
 t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
@@ -116,7 +87,7 @@ info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"
 info.session_inactivity_timeout = 60000; info.connection_inactivity_timeout = 2000
 sm = SessionManager(r); sm.CreateSession(info)
 base = BaseClient(r); cyc = BaseCyclicClient(r)
-lock = None
+lock = live = None
 try:
     tt = ControlConfigClient(r).GetToolConfiguration().tool_transform
     if abs(tt.z - gen3.ARM_TCP) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
@@ -130,7 +101,7 @@ try:
     off = max(abs(x) for x in waypoint.travel(cur, home))
     print("arm at %s, %.1f deg from Home" % ([round(a, 1) for a in cur], off))
     if off > HOME_TOL:
-        sys.exit("Refusing: not at Home. Park it first:\n  KINOVA_TARGET=Home KINOVA_CONFIRM=yes ~/kinova-py310/bin/python ~/kinova/goto_pose.py")
+        sys.exit("Refusing: not at Home. Park it first, with Park in the editor, or safe_park.py.")
 
     # The arm's own IK for every raised point, each seeded with the one before, so the joint path is
     # continuous and is exactly what gets run. (Cartesian waypoints let the arm pick its own branch
@@ -154,8 +125,8 @@ try:
     def dstep(a_, b_):
         return np.abs(((b_ - a_ + 180) % 360) - 180)
 
-    # every pose along the way: above the start, the path, straight up at the end
-    P = [above] + list(tips) + [up]; E = [eul[0]] + eul + [eul[-1]]
+    # every pose along the way: above the start, then the path (the way out is the safe exit, below)
+    P = [above] + list(tips); E = [eul[0]] + eul
     q = ik(P[0], E[0], wps[0]["joints"]); chain = [q]; seglen = []
     for k in range(1, len(P)):
         qk = ik(P[k], E[k], q); n = int(math.ceil(dstep(q, qk)[:5].max() / FINE))
@@ -180,30 +151,9 @@ try:
         sys.exit("Joint path not safe to run (step > %.0f deg or within %.0f deg of a limit). Not moving." % (MAX_STEP, MARGIN))
     dur = [max(L / SPEED, st.max() / JV, MIN_DT) for L, st in zip(seglen, steps)]
     approach = waypoint.duration(cur, q_above, 20.0)
-    # what stretching the time can fix: too fast, accelerating too hard, or the arm's curve through the
-    # waypoints overshooting a joint past its limit (steps too short for the curve)
-    TIMING = (Base_pb2.TRAJECTORY_ERROR_TYPE_INVALID_JOINT_ACCELERATION, Base_pb2.TRAJECTORY_ERROR_TYPE_INVALID_JOINT_SPEED,
-              Base_pb2.TRAJECTORY_ERROR_TYPE_INVALID_JOINT_POSITION)
 
     def fit(qs, t0, first=1):
-        """Ask the arm about a joint list whose first waypoint is reached from where the arm stands. Where it
-        finds a joint too fast, accelerating too hard, or its curve overshooting a joint limit, slow the whole
-        list down evenly and ask again: uneven step times are what make its curve misbehave, so stretching
-        single steps makes things worse (found on the arm, 2026-11-19)."""
-        t = list(t0)
-        for rounds in range(1, 31):
-            rep = base.ValidateWaypointList(joint_list(qs, t)).trajectory_error_report.trajectory_error_elements
-            if not rep or any(e.error_type not in TIMING for e in rep):
-                break
-            f = 1.0
-            for e in rep:
-                if e.error_type == TIMING[2]:
-                    f = max(f, 1.15)
-                else:
-                    over = e.error_value / (e.max_value or 1)
-                    f = max(f, (math.sqrt(over) if e.error_type == TIMING[0] else over) * 1.03)
-            t = t[:first] + [min(x * f, 20.0) for x in t[first:]]
-        return t, rounds
+        return armmove.fit(base, qs, t0, first)
 
     # Steps timed against the joint acceleration limit (51.6 deg/s^2), stretched only where a joint changes
     # speed or direction sharply, from rest and to rest.
@@ -251,31 +201,13 @@ try:
     print("ARMED: running in about 3 s. Ctrl-C stops the arm.")
     time.sleep(3)
 
-    # log where the tool really goes
-    log, stop_log = [], threading.Event()
-    def sampler():
-        while not stop_log.is_set():
-            try: b = cyc.RefreshFeedback().base
-            except Exception: return
-            log.append((time.time(), b.tool_pose_x, b.tool_pose_y, b.tool_pose_z)); time.sleep(0.05)
-        return
-    th = threading.Thread(target=sampler, daemon=True); th.start()
+    # log where the tool really goes, and feed the editor's live view
+    live = armmove.Live(cyc, "air-run", plan=PLAN, raise_mm=RAISE * 1000, fast=FAST).start()
+    log = live.log
 
     def run(name, wl, timeout):
-        done, res = threading.Event(), {}
-        def on_event(n):
-            ev = Base_pb2.ActionEvent.Name(n.action_event)
-            if ev in ("ACTION_END", "ACTION_ABORT"):
-                res["ev"] = ev; res["n"] = n; done.set()
-        h = base.OnNotificationActionTopic(on_event, Base_pb2.NotificationOptions())
-        t0 = time.time()
-        base.ExecuteWaypointTrajectory(wl)
-        ok = done.wait(timeout); base.Unsubscribe(h)
-        if not ok:
-            base.Stop(); raise SystemExit("TIMED OUT on %s after %.0f s. Sent Stop()." % (name, timeout))
-        print("  %-34s %s in %.1f s" % (name, res["ev"], time.time() - t0))
-        if res["ev"] == "ACTION_ABORT":
-            raise SystemExit("ABORTED on %s: %s" % (name, res["n"]))
+        live.what = name
+        armmove.run(base, name, wl, timeout)
 
     t_start = time.time()
     for name, wl in moves:
@@ -293,10 +225,18 @@ try:
             run(name, wl, 60 + 2 * sum(t))
             continue
         run(name, wl, 60 + 2 * est)
-    # home by a joint move, from straight above the spiral's end
+    # the way out: back out along the nozzle, rise above the (here imaginary, raised) print, then Home,
+    # every pose checked against it first (exit_path.py)
     cur = [a.position for a in cyc.RefreshFeedback().actuators]
-    run("back to Home (joint move)", waypoint.build(cur, home, 20.0, "home"), 60)
-    stop_log.set(); th.join()
+    ex = exit_path.plan_exit(cur, np.array(d["strand"]) + [0, 0, RAISE], d["params"]["table"], None, home)
+    if not ex["ok"]:
+        raise SystemExit("Finished the path, but there is no safe way out: %s. The arm is waiting at the end of the path: "
+                         "move it clear by hand." % ex["reason"])
+    print("  way out: back out %.0f mm along the nozzle, up to z %.2f m, then Home; closest %.1f mm (%s)"
+          % (exit_path.BACK_M * 1000, ex["rise_to"], ex["worst_mm"], ex["what"]), flush=True)
+    live.what = "safe exit"
+    armmove.run_exit(base, cyc, ex)
+    live.stop(); live = None
     print("done in %.0f s" % (time.time() - t_start))
 
     # how closely the tool followed the raised path, over the path part only
@@ -317,5 +257,6 @@ except Exception:
     except Exception: pass
     raise
 finally:
+    if live: live.stop()
     if lock: lock.release()
     sm.CloseSession(); r.SetActivationStatus(False)

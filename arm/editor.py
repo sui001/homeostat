@@ -40,6 +40,53 @@ job = {"state": "idle", "kind": None, "log": [], "result": None, "run": None, "s
 _proc = [None]            # the motion script running now, for Stop
 KINOVA = os.path.expanduser("~/kinova")
 HOME = [0, 15, 230, 0, 55, 90]          # the arm's factory Home pose, deg
+LAST_RUN = os.path.join(PLANS, "last_run.json")   # the plan last air-run, so Park knows what may be in the way
+LIVE = os.path.join(HERE, "live.json")           # written by air_run.py / safe_park.py while they move the arm
+_idle = {"t": 0.0, "d": None}
+
+
+def read_arm_joints():
+    """The arm's joints, read directly (only when nothing of ours is moving it)."""
+    sys.path.insert(0, KINOVA)
+    import kenv; kenv.load()
+    from kortex_api.TCPTransport import TCPTransport
+    from kortex_api.RouterClient import RouterClient
+    from kortex_api.SessionManager import SessionManager
+    from kortex_api.autogen.client_stubs.BaseCyclicClientRpc import BaseCyclicClient
+    from kortex_api.autogen.messages import Session_pb2
+    t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
+    info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]
+    info.session_inactivity_timeout = 10000; info.connection_inactivity_timeout = 2000
+    sm = SessionManager(r); sm.CreateSession(info)
+    try:
+        return [a.position for a in BaseCyclicClient(r).RefreshFeedback().actuators]
+    finally:
+        sm.CloseSession(); r.SetActivationStatus(False)
+
+
+def live_state():
+    """Where the arm is: from the moving script's feed while one runs, else read from the arm (every 3 s at most)."""
+    d = None
+    try:
+        d = json.load(open(LIVE))
+    except Exception:
+        pass
+    moving = bool(d and d.get("active") and time.time() - d.get("t", 0) < 3)
+    if not moving and ON_ARM and not (job["state"] == "running" and job["kind"] != "plan"):
+        if d and d.get("joints") and d.get("t", 0) > _idle["t"]:      # a run just ended: its last reading is newest
+            _idle.update(t=d["t"], d=dict(d, active=False))
+        if time.time() - _idle["t"] > 3:
+            _idle["t"] = time.time()
+            try:
+                _idle["d"] = dict(active=False, what="", joints=read_arm_joints(), t=time.time())
+            except Exception as e:
+                _idle["d"] = dict(active=False, what="", error=str(e).splitlines()[0][:100] if str(e) else "no arm")
+        d = _idle["d"]
+    if not d or not d.get("joints"):
+        return dict(active=False, points=None, error=(d or {}).get("error", "no reading"))
+    F = gen3.frames(d["joints"], plan.TOOL)
+    return dict(active=moving, what=d.get("what", ""), joints=[round(v, 2) for v in d["joints"]],
+                points=[[0, 0, 0]] + [f[:3, 3].round(4).tolist() for f in F], t=d.get("t"))
 _quick_gen = [0]          # a newer quick check makes older ones stop early
 _job_lock = threading.Lock()
 
@@ -223,12 +270,23 @@ def airrun_job(name, raise_mm, fast=1.0):
 
 def park_job():
     try:
-        rc = stream([sys.executable, "-u", os.path.join(KINOVA, "goto_pose.py")],
-                    {"KINOVA_TARGET": "Home", "KINOVA_CONFIRM": "yes"}, cwd=KINOVA)
+        last = json.load(open(LAST_RUN)) if os.path.exists(LAST_RUN) else {}
+        args = [sys.executable, "-u", "safe_park.py"]
+        if last.get("name") and os.path.exists(os.path.join(PLANS, last["name"] + "_checked.json")):
+            args.append(os.path.join("plans", last["name"] + "_checked.json"))
+            log("keeping clear of %s (air-run %g mm up)" % (last["name"], last.get("raise_mm", 0)))
+        else:
+            log("no plan known: backing out and rising anyway, then Home")
+        env = {"PARK_RAISE_MM": "%g" % last.get("raise_mm", 0)}
+        if stream(args, env):
+            raise RuntimeError("no safe way out found from here; nothing moved (see the log)")
+        if job["stop"]:
+            raise RuntimeError("stopped before moving")
+        rc = stream(args, dict(env, KINOVA_CONFIRM="yes"))
         if job["stop"]:
             raise RuntimeError("stopped part way")
         if rc:
-            raise RuntimeError("goto_pose.py exited %d" % rc)
+            raise RuntimeError("safe_park.py exited %d" % rc)
         job["state"] = "done"; log("parked at Home")
     except Exception as e:
         log("FAILED: %s" % e); job["state"] = "failed"
@@ -289,6 +347,8 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/armref":     # the arm standing at Home, as drawn for scale (base, joints, flange, tip)
                 F = gen3.frames(HOME, plan.TOOL)
                 return self.send(200, dict(points=[[0, 0, 0]] + [f[:3, 3].round(4).tolist() for f in F]))
+            if u.path == "/api/live":
+                return self.send(200, live_state())
             if u.path == "/api/job":
                 return self.send(200, dict(job, on_arm=ON_ARM, now=time.time()))
             m = re.fullmatch(r"/plans/(layout-[0-9-]+(?:_checked)?\.(html|json))", u.path)
@@ -327,6 +387,8 @@ class H(BaseHTTPRequestHandler):
                     if c.get("ik_refused") or c.get("clashes") or c.get("traj_errors"):
                         return self.send(400, {"error": "that plan did not pass the arm check"})
                     ok = start_job("airrun", airrun_job, (name, raise_mm, fast))
+                    if ok:
+                        json.dump(dict(name=name, raise_mm=raise_mm), open(LAST_RUN, "w"))
                 return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "something is already running"})
             if u.path == "/api/import":
                 return self.send(200, {"name": save_import(body)})

@@ -71,7 +71,7 @@
     <button id="view-obj">Frame object</button>
     <button id="view-all">Whole arm</button>
   </div>
-  <label class="check"><input type="checkbox" id="show_arm" checked> Show the arm at Home, to scale</label>
+  <label class="check"><input type="checkbox" id="show_arm" checked> Show the arm, live (where it really is)</label>
   <label class="check"><input type="checkbox" id="use_sweep"> Keep inside the painting rig's working sweep <span id="sweepInfo" class="muted"></span></label>
 
   <h2>Printability</h2>
@@ -182,7 +182,7 @@ function bands() {
   }
   return out;
 }
-let BANDS = [], armRef = null;
+let BANDS = [], armRef = null, live = null, trail = [], wasLive = false;
 
 function draw() {
   g.clearRect(0, 0, cv.width, cv.height);
@@ -208,15 +208,18 @@ function draw() {
     poly(ring(1.0, tz, sweep[0] * Math.PI / 180, sweep[1] * Math.PI / 180, 48), "#8e5cc9", 1.5);
   }
   // the arm standing at Home, to scale: a reference, it doesn't move here
-  if (armRef && $("show_arm").checked) {
-    const R = [0.06, 0.05, 0.05, 0.045, 0.045, 0.04, 0.04];
-    for (let i = 1; i < armRef.length - 1; i++) {
-      const a = proj(armRef[i - 1]), b = proj(armRef[i]), k = 1100 * cam.zoom / (3 - (a[2] + b[2]) / 2);
-      g.strokeStyle = "rgba(59,111,214,0.45)"; g.lineCap = "round"; g.lineWidth = Math.max(2, 2 * R[i - 1] * k);
+  const pts = live && live.points ? live.points : armRef;
+  if (pts && $("show_arm").checked) {
+    const R = [0.06, 0.05, 0.05, 0.045, 0.045, 0.04, 0.04], solid = !!(live && live.points);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = proj(pts[i - 1]), b = proj(pts[i]), k = 1100 * cam.zoom / (3 - (a[2] + b[2]) / 2);
+      g.strokeStyle = solid ? (live.active ? "rgba(59,111,214,0.8)" : "rgba(59,111,214,0.6)") : "rgba(59,111,214,0.35)";
+      g.lineCap = "round"; g.lineWidth = Math.max(2, 2 * R[i - 1] * k);
       g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); g.lineCap = "butt";
     }
-    line(armRef[armRef.length - 2], armRef[armRef.length - 1], "#e39b25", 4);      // flange to the tool tip
+    line(pts[pts.length - 2], pts[pts.length - 1], "#e39b25", 5);      // flange to the tool tip
   }
+  if (trail.length > 1) { g.globalAlpha = 0.7; poly(trail, "#3b6fd6", 2.5); g.globalAlpha = 1; }
   // the arm's base column
   for (const z of [0, 0.2848]) poly(ring(0.065, z, -Math.PI, Math.PI, 32), "#3b6fd6", 2);
   for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; line([0.065 * Math.cos(a), 0.065 * Math.sin(a), 0], [0.065 * Math.cos(a), 0.065 * Math.sin(a), 0.2848], "#3b6fd6", 2); }
@@ -252,6 +255,8 @@ function drawAxes() {     // which way world x, y and z point from here, coloure
   }
   g.fillStyle = "#1d1e20"; g.font = "24px system-ui";
   g.fillText(`Turn ${(+P.yaw).toFixed(0)}°   Tilt X ${(+P.roll).toFixed(0)}°   Tilt Y ${(+P.pitch).toFixed(0)}°`, 28, 240);
+  const armLabel = live && live.points ? (live.active ? "Arm: live, " + (live.what || "moving") : "Arm: where it is now") : "Arm: drawn at Home (no reading)";
+  g.fillStyle = live && live.active ? "#c0392b" : "#66655f"; g.fillText(armLabel, 28, 280);
 }
 
 // ------------------------------------------------------------------ panel
@@ -515,6 +520,16 @@ async function startPlan(check) {
 $("plan").onclick = () => startPlan(false);
 $("planCheck").onclick = () => startPlan(true);
 let lastJob = null, pendingAction = null, armMoving = false;
+async function pollLive() {
+  try {
+    const d = await (await fetch("/api/live")).json();
+    if (d.active && !wasLive) trail = [];                   // a new run: start a fresh trail
+    wasLive = !!d.active;
+    if (d.points) { live = d; if (d.active) { trail.push(d.points[d.points.length - 1]); if (trail.length > 4000) trail.shift(); } }
+    draw();
+  } catch (e) { }
+  setTimeout(pollLive, armMoving || wasLive ? 120 : 3000);
+}
 function stopNow() { $("runNote").textContent = "Stopping…"; fetch("/api/stop", { method: "POST", body: "{}" }).then(pollJob); }
 addEventListener("keydown", e => {
   if (armMoving && (e.key === "Escape" || e.key === " ")) { e.preventDefault(); stopNow(); return; }
@@ -579,7 +594,8 @@ $("airrun").onclick = () => {
       `then straight up and back to Home. Nothing is extruded. Stand at the arm with the e-stop in reach: a Stop button shows here while it runs.`,
       () => postJob("/api/airrun", { name: r.name, raise_mm: mm, fast }));
 };
-$("park").onclick = () => ask(`<b>The arm will move</b> to Home by a joint move, from wherever it is now. Check nothing is in its way.`,
+$("park").onclick = () => ask(`<b>The arm will move</b> to Home the safe way: back out along the nozzle, rise above the print, then Home. ` +
+                              `The way out is checked against the last plan run before anything moves; if it isn't clear, nothing moves.`,
                               () => postJob("/api/park", {}));
 $("stopArm").onclick = stopNow;
 
@@ -592,6 +608,7 @@ $("stopArm").onclick = stopNow;
     $("use_sweep").disabled = !sweep; render();
   });
   fetch("/api/armref").then(r => r.json()).then(d => { armRef = d.points; draw(); });
+  pollLive();
   const want = new URLSearchParams(location.search).get("import");       // "Place it in the layout editor" from the simulator
   if (want) history.replaceState(null, "", location.pathname);
   await loadSources(want || undefined);

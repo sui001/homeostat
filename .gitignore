@@ -5,3 +5,6 @@ air_run_log.json
 arm/plans/
 arm/air_run_refused.json
 arm/plans/imports/
+arm/live.json
+arm/live.json.tmp
+arm/plans/last_run.json
