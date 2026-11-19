@@ -84,14 +84,18 @@ def _read_arm_joints():
     from kortex_api.SessionManager import SessionManager
     from kortex_api.autogen.client_stubs.BaseCyclicClientRpc import BaseCyclicClient
     from kortex_api.autogen.messages import Session_pb2
-    t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
-    info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]
-    info.session_inactivity_timeout = 10000; info.connection_inactivity_timeout = 2000
-    sm = SessionManager(r); sm.CreateSession(info)
-    try:
-        return [a.position for a in BaseCyclicClient(r).RefreshFeedback().actuators]
+    t = TCPTransport()
+    try:                       # the socket is always closed: the editor runs for days and reads every few seconds
+        r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
+        info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]
+        info.session_inactivity_timeout = 10000; info.connection_inactivity_timeout = 2000
+        sm = SessionManager(r); sm.CreateSession(info)
+        try:
+            return [a.position for a in BaseCyclicClient(r).RefreshFeedback().actuators]
+        finally:
+            sm.CloseSession(); r.SetActivationStatus(False)
     finally:
-        sm.CloseSession(); r.SetActivationStatus(False)
+        t.disconnect()
 
 
 def live_state():

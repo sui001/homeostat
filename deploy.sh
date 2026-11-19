@@ -16,7 +16,7 @@ if [ "${FORCE:-}" != "1" ] && ssh "$HOST" 'curl -s -m 5 http://$(tailscale ip -4
 fi
 
 ssh "$HOST" 'mkdir -p ~/homeostat-arm/arm/plans'
-scp -q arm/*.py arm/editor.html arm/viewer_template.html "$HOST:homeostat-arm/arm/"
+scp -q arm/*.py arm/editor.html arm/homeostat.html arm/viewer_template.html "$HOST:homeostat-arm/arm/"
 scp -q deploy/homeostat-editor.service "$HOST:/tmp/homeostat-editor.service"
 ssh "$HOST" 'sudo install -m 644 /tmp/homeostat-editor.service /etc/systemd/system/homeostat-editor.service \
   && rm /tmp/homeostat-editor.service \
