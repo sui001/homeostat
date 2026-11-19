@@ -10,7 +10,7 @@ quick_check(...)   per point of a placed path: can some direction reach it past 
 import math
 import numpy as np
 import plan, wrist
-from homeostat_path import path_mm
+from homeostat_path import load_path
 
 DIRS = plan.fib_dirs(900)          # the sweep's direction set: down to ~15 deg above horizontal
 R_MAX, Z_MAX, CELL = 1.20, 0.80, 0.01
@@ -50,11 +50,13 @@ def reach_map(table):
     return dict(r0=0.0, z0=float(table), cell=CELL, nr=len(rs), nz=len(zs), frac=np.round(M, 3).tolist())
 
 
-def base_shape(preset, seconds, scale, from_t, step=2.0):
+def base_shape(preset, seconds, scale, from_t, step=2.0, path_file=None):
     """The path at this scale, oriented with its anchor lowest, centred, lowest point at z = 0."""
-    P_mm, T = path_mm(preset, seconds, scale, step)
+    P_mm, T = load_path(path_file, preset, seconds, scale, step)
     if from_t > 0:
         keep = T >= from_t; P_mm, T = P_mm[keep], T[keep]
+    if len(P_mm) < 2:
+        raise ValueError("nothing in the path after t = %g s" % from_t)
     return plan.place_base(P_mm), T
 
 

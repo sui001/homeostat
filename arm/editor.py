@@ -23,6 +23,7 @@ import gen3, plan, editor_core as ec
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLANS = os.path.join(HERE, "plans")
+IMPORTS = os.path.join(PLANS, "imports")      # paths sent from the simulator page
 PORT = int(os.environ.get("EDITOR_PORT", 8792))
 HOST = os.environ.get("EDITOR_HOST", "127.0.0.1")
 ON_ARM = os.environ.get("EDITOR_ON_ARM") == "1"
@@ -54,8 +55,47 @@ def nums(d):
     return p
 
 
+def source_file(name):
+    """A simulator path by name ("" = the built-in model). Only names this server made."""
+    if not name:
+        return None
+    if not re.fullmatch(r"sim-[0-9-]+", name) or not os.path.exists(os.path.join(IMPORTS, name + ".json")):
+        raise ValueError("no simulator path called %r" % name)
+    return os.path.join(IMPORTS, name + ".json")
+
+
+def save_import(d):
+    pts = d.get("points")
+    if not isinstance(pts, list) or not 20 <= len(pts) <= 200000:
+        raise ValueError("expected 20 to 200000 points")
+    A = np.asarray(pts, float)
+    if A.ndim != 2 or A.shape[1] != 4 or not np.isfinite(A).all():
+        raise ValueError("each point must be t, x, y, z")
+    mm = float(d.get("mm_per_90", 0))
+    if not 10 <= mm <= 1000:
+        raise ValueError("mm_per_90 must be 10-1000")
+    os.makedirs(IMPORTS, exist_ok=True)
+    name = time.strftime("sim-%Y%m%d-%H%M%S")
+    keep = dict(format="homeostat-path/1", seed=d.get("seed"), preset=str(d.get("preset", ""))[:60],
+                t_end=float(A[-1, 0]), view={k: float(v) for k, v in (d.get("view") or {}).items() if k in ("xw", "yw")},
+                mm_per_90=mm, received=time.strftime("%Y-%m-%d %H:%M"), points=A.round(4).tolist())
+    json.dump(keep, open(os.path.join(IMPORTS, name + ".json"), "w"))
+    return name
+
+
+def list_imports():
+    out = []
+    if os.path.isdir(IMPORTS):
+        for f in sorted(os.listdir(IMPORTS), reverse=True):
+            if re.fullmatch(r"sim-[0-9-]+\.json", f):
+                d = json.load(open(os.path.join(IMPORTS, f)))
+                out.append(dict(name=f[:-5], seed=d.get("seed"), preset=d.get("preset"), t_end=d.get("t_end"),
+                                view=d.get("view"), mm_per_90=d.get("mm_per_90"), points=len(d["points"]), received=d.get("received")))
+    return out
+
+
 def placed(p):
-    B, T = ec.base_shape(p["preset"], p["seconds"], p["scale"], p["from_t"])
+    B, T = ec.base_shape(p["preset"], p["seconds"], p["scale"], p["from_t"], path_file=p.get("path_file"))
     W = plan.place_from_base(B, (p["x"], p["y"]), p["table"], p["lift"], p["yaw"], p["roll"], p["pitch"])
     return W, T
 
@@ -101,11 +141,13 @@ def plan_job(p, check):
         os.makedirs(PLANS, exist_ok=True)
         name = time.strftime("layout-%Y%m%d-%H%M%S")
         out = os.path.join("plans", name + ".json")
-        args = [sys.executable, "plan.py", "--preset", str(p["preset"]), "--seconds", str(p["seconds"]),
+        args = [sys.executable, "plan.py"] + (["--path-file", os.path.relpath(p["path_file"], HERE)] if p.get("path_file") else []) + [
+                "--preset", str(p["preset"]), "--seconds", str(p["seconds"]),
                 "--scale", str(p["scale"]), "--from-t", str(p["from_t"]), "--x", str(p["x"]), "--y", str(p["y"]),
                 "--table", str(p["table"]), "--lift", str(p["lift"]), "--yaw", str(p["yaw"]),
                 "--roll", str(p["roll"]), "--pitch", str(p["pitch"]), "--out", out]
-        run(args)
+        if stream(args[:1] + ["-u"] + args[1:] + ["--progress"], {}):
+            raise RuntimeError("plan.py failed")
         final = out
         check_summary = None
         if check and ON_ARM:
@@ -126,7 +168,7 @@ def plan_job(p, check):
                                  traj_errors=len(c["traj_errors"]), worst_dq=round(c["worst_dq"], 2))
         job["result"] = dict(name=name, viewer="/plans/%s.html" % name, printable_mm=d["printable_mm"],
                              total_mm=d["total_mm"], fails=d["fails"], points=len(d["waypoints"]), check=check_summary,
-                             params=p, checked=bool(c))
+                             params=dict(p, source=p.get("source", "")), checked=bool(c))
         job["state"] = "done"
         log("done: %.0f of %.0f mm printable" % (d["printable_mm"], d["total_mm"]))
     except Exception as e:
@@ -148,18 +190,28 @@ def stream(cmd, env_extra, cwd=HERE):
         _proc[0] = None
 
 
-def airrun_job(name, raise_mm):
+def airrun_job(name, raise_mm, fast=1.0):
     try:
         path = os.path.join("plans", name + "_checked.json")
-        env = {"AIR_RAISE_MM": "%g" % raise_mm}
-        log("asking the arm whether it can run this, raised %g mm (no motion)" % raise_mm)
+        env = {"AIR_RAISE_MM": "%g" % raise_mm, "AIR_FAST": "%g" % fast}
+        log("asking the arm whether it can run this, raised %g mm, %s (no motion)" % (raise_mm, "print speed" if fast == 1 else "%g x faster" % fast))
         if stream([sys.executable, "-u", "air_run.py", path], env):
-            raise RuntimeError("the arm can't run it like this; nothing moved")
+            if any("no IK solution" in l for l in job["log"][-4:]):
+                # too high for the arm somewhere: find the most raise that does work, without moving
+                for r in [v for v in (10, 5, 0) if v < raise_mm]:
+                    log("trying %g mm (no motion)" % r)
+                    c = subprocess.run([sys.executable, "air_run.py", path], cwd=HERE, capture_output=True, text=True,
+                                       env=dict(os.environ, AIR_RAISE_MM=str(r), AIR_FAST="%g" % fast), timeout=600)
+                    if c.returncode == 0:
+                        raise RuntimeError("raised %g mm the arm can't reach every point, but it can at %g mm: "
+                                           "set the raise to %g and run it again. Nothing moved." % (raise_mm, r, r))
+                raise RuntimeError("the arm can't reach every point of this plan even at 0 mm raise. Nothing moved.")
+            raise RuntimeError("the arm won't run it like this (see the log). Nothing moved.")
         if job["stop"]:
             raise RuntimeError("stopped before moving")
         log("MOVING THE ARM")
         rc = stream([sys.executable, "-u", "air_run.py", path], dict(env, KINOVA_CONFIRM="yes"))
-        job["run"] = dict(name=name, raise_mm=raise_mm, ok=rc == 0 and not job["stop"], stopped=job["stop"])
+        job["run"] = dict(name=name, raise_mm=raise_mm, fast=fast, ok=rc == 0 and not job["stop"], stopped=job["stop"])
         if job["stop"]:
             raise RuntimeError("stopped part way. Park the arm at Home before the next run.")
         if rc:
@@ -198,7 +250,7 @@ def start_job(kind, target, args=()):
         if job["state"] == "running":
             return False
         keep = job["result"]
-        job.update(state="running", kind=kind, log=[], stop=False, run=None,
+        job.update(state="running", kind=kind, log=[], stop=False, run=None, started=time.time(),
                    result=None if kind == "plan" else keep)
     threading.Thread(target=target, args=args, daemon=True).start()
     return True
@@ -219,9 +271,13 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path in ("/", "/editor.html"):
                 return self.send(200, open(os.path.join(HERE, "editor.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path in ("/sim", "/sim/"):
+                return self.send(200, open(os.path.join(HERE, "homeostat.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path == "/api/imports":
+                return self.send(200, list_imports())
             if u.path == "/api/shape":
                 p = nums(q)
-                B, T = ec.base_shape(p["preset"], p["seconds"], p["scale"], p["from_t"])
+                B, T = ec.base_shape(p["preset"], p["seconds"], p["scale"], p["from_t"], path_file=source_file(q.get("source", "")))
                 return self.send(200, dict(base=B.round(5).tolist(), t=T.round(3).tolist(), scale=p["scale"]))
             if u.path == "/api/reach":
                 return self.send(200, reach(float(q.get("table", 0.16))))
@@ -234,7 +290,7 @@ class H(BaseHTTPRequestHandler):
                 F = gen3.frames(HOME, plan.TOOL)
                 return self.send(200, dict(points=[[0, 0, 0]] + [f[:3, 3].round(4).tolist() for f in F]))
             if u.path == "/api/job":
-                return self.send(200, dict(job, on_arm=ON_ARM))
+                return self.send(200, dict(job, on_arm=ON_ARM, now=time.time()))
             m = re.fullmatch(r"/plans/(layout-[0-9-]+(?:_checked)?\.(html|json))", u.path)
             if m and os.path.exists(os.path.join(PLANS, m.group(1))):
                 ct = "text/html; charset=utf-8" if m.group(2) == "html" else "application/json"
@@ -264,12 +320,19 @@ class H(BaseHTTPRequestHandler):
                         return self.send(400, {"error": "no checked plan called %r" % name})
                     if not (0 <= raise_mm <= 100):
                         return self.send(400, {"error": "raise must be 0-100 mm"})
+                    fast = float(body.get("fast", 1))
+                    if not (1 <= fast <= 4):
+                        return self.send(400, {"error": "speed must be 1-4 x"})
                     c = json.load(open(os.path.join(PLANS, name + "_checked.json"))).get("arm_check") or {}
                     if c.get("ik_refused") or c.get("clashes") or c.get("traj_errors"):
                         return self.send(400, {"error": "that plan did not pass the arm check"})
-                    ok = start_job("airrun", airrun_job, (name, raise_mm))
+                    ok = start_job("airrun", airrun_job, (name, raise_mm, fast))
                 return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "something is already running"})
+            if u.path == "/api/import":
+                return self.send(200, {"name": save_import(body)})
             p = nums(body)
+            p["source"] = str(body.get("source", "") or "")
+            p["path_file"] = source_file(p["source"])
             if u.path == "/api/quick":
                 W, T = placed(p)
                 sweep = _sweep["sweep"] if body.get("use_sweep") else None

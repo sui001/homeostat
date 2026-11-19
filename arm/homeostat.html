@@ -152,10 +152,14 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
         <button id="exRaw">4-D data (.csv)</button>
       </div>
       <div class="row">
+        <button class="primary" id="exArm">Send to the arm</button>
+        <a id="editorLink" href="/" target="_blank" rel="noopener" hidden>Layout editor</a>
+      </div>
+      <div class="row">
         <label class="check"><input type="checkbox" id="withCube" checked> Include tesseract in drawing</label>
       </div>
       <div id="status" role="status"></div>
-      <p class="note">Exports use the view as it is now; untick 4-D spin first to hold an angle. The SVG is the 2-D projection on screen, one polyline per colour (one pen each). The 3-D path is the 4-D perspective step only, before the 3-D turn: x, y, z in mm, ready to sweep a tube along. Both skip samples that moved under 0.25°, so the settled tail doesn't pile up; the 4-D data keeps every sample.</p>
+      <p class="note">Exports use the view as it is now; untick 4-D spin first to hold an angle. The SVG is the 2-D projection on screen, one polyline per colour (one pen each). The 3-D path is the 4-D perspective step only, before the 3-D turn: x, y, z in mm, ready to sweep a tube along. Send to the arm passes that same path to the layout editor on armster, where it is placed, planned and run. Both skip samples that moved under 0.25°, so the settled tail doesn't pile up; the 4-D data keeps every sample.</p>
     </div>
   </section>
 </main>
@@ -492,6 +496,29 @@ const stamp = () => `homeostat_${model.cfg.seed}_t${Math.round(model.t)}s`;
 $("exSvg").onclick = () => offer(stamp() + "_arm.svg", buildSvg(), "image/svg+xml");
 $("exXyz").onclick = () => offer(stamp() + "_path3d.csv", buildXyz(), "text/csv");
 $("exRaw").onclick = () => offer(stamp() + "_4d.csv", buildRaw(), "text/csv");
+
+// Send to the arm: the same 3-D path as the .csv, as JSON, to the layout editor that serves this page.
+// Opened as a file (no editor behind it), it saves the JSON instead, to load in the editor by hand.
+function buildArm() {
+  const k = mmPerDeg();
+  return { format: "homeostat-path/1", seed: model.cfg.seed, preset: PRESETS[$("preset").value].name,
+           t_end: +model.t.toFixed(2), view: { xw: +view.xw.toFixed(5), yw: +view.yw.toFixed(5) },
+           mm_per_90: +$("mm").value || 120,
+           points: movingHist().map(h => [+h[5].toFixed(3), ...to3(h).map(v => +(v * k).toFixed(3))]) };
+}
+const served = location.protocol.startsWith("http") && location.pathname.replace(/\/$/, "").endsWith("/sim");
+if (served) $("editorLink").hidden = false;
+$("exArm").onclick = async () => {
+  const d = buildArm(), st = $("status");
+  if (d.points.length < 20) { st.textContent = "Let it run a little first: there's hardly any path yet."; return; }
+  if (!served) { await offer(stamp() + "_arm.json", JSON.stringify(d), "application/json"); st.textContent += " Load it in the layout editor with Load a file."; return; }
+  try {
+    const r = await fetch("/api/import", { method: "POST", body: JSON.stringify(d) }), res = await r.json();
+    if (!r.ok) throw new Error(res.error || r.status);
+    st.innerHTML = `Sent ${d.points.length} points (t 0 to ${d.t_end.toFixed(1)} s, view xw ${d.view.xw.toFixed(2)}) as ${res.name}. ` +
+                   `<a href="/?import=${encodeURIComponent(res.name)}" target="_blank" rel="noopener">Place it in the layout editor</a>.`;
+  } catch (e) { st.textContent = "Couldn't send it: " + (e && e.message ? e.message : e) + "."; }
+};
 
 $("preset").value = 0; $("seed").value = PRESETS[0].seed;
 restart();

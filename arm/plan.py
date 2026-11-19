@@ -18,7 +18,7 @@ The hot end is a guess until the real one is measured: see HOTEND below.
 import argparse, json, math, sys
 import numpy as np
 import gen3, wrist
-from homeostat_path import path_mm
+from homeostat_path import load_path
 
 # ---------------------------------------------------------------- geometry (metres)
 # Tool frame = the nozzle tip: flange + gen3.NOZZLE along the flange z. The arm itself is still set to a
@@ -252,9 +252,11 @@ def with_post(W, dense, S, table_z):
     return np.r_[post, dense], np.r_[np.full(len(post), -1.0), S]
 
 def plan(args):
-    P_mm, T = path_mm(args.preset, args.seconds, args.scale, args.step)
+    P_mm, T = load_path(args.path_file, args.preset, args.seconds, args.scale, args.step)
     if args.from_t > 0:   # just the attractor: from the last uniselector step on
         keep = T >= args.from_t; P_mm, T = P_mm[keep], T[keep]
+        if len(P_mm) < 2:
+            raise SystemExit("Nothing in the path after t = %g s." % args.from_t)
     W = place(P_mm, (args.x, args.y), args.table, args.lift, args.yaw, args.roll, args.pitch)
     if args.trim > 0:
         W = W[: max(2, len(W) - int(round(args.trim / args.step)))]
@@ -267,6 +269,8 @@ def plan(args):
     # 1. every clear direction at every point
     C = np.zeros((len(W), len(D)))
     for i, tip in enumerate(W):
+        if args.progress and i % 100 == 0:
+            print("finding clear directions: point %d of %d" % (i, len(W)), flush=True)
         tan = W[min(i + 1, len(W) - 1)] - W[max(i - 1, 0)]; tan /= (np.linalg.norm(tan) or 1)
         m = S <= s[i] + 1e-9
         C[i] = clearance_all_dirs(D, tip, dense[m], s[i] - S[m], args.table)
@@ -282,6 +286,8 @@ def plan(args):
     # 2. smooth direction sequence, 3. IK along it; ban what fails and go again
     banned = np.zeros_like(C, bool); start = np.array([0, 0, -1.0])
     for attempt in range(40):
+        if args.progress:
+            print("smoothing the directions and solving the arm's joints, pass %d" % (attempt + 1), flush=True)
         path, reached = choose_dirs(D, C[:end], banned[:end], start)
         if path is None:
             end = reached; continue        # nothing smooth gets past `reached`: print stops there
@@ -329,6 +335,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", type=int, default=0)
     ap.add_argument("--seconds", type=float, default=30.0)
+    ap.add_argument("--path-file", default=None, help="a path sent from the simulator page (JSON); replaces --preset and --seconds")
     ap.add_argument("--scale", type=float, default=120.0, help="mm per 90 deg, as the page's export box")
     ap.add_argument("--step", type=float, default=2.0, help="mm between waypoints")
     ap.add_argument("--x", type=float, default=0.45); ap.add_argument("--y", type=float, default=0.0)
@@ -343,6 +350,7 @@ if __name__ == "__main__":
     ap.add_argument("--long-nozzle", action="store_true", help="hot end with a 20 mm nozzle extension")
     ap.add_argument("--trim", type=float, default=0.0, help="stop this many mm before the end of the spiral")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--progress", action="store_true", help="print progress lines as it goes")
     a = ap.parse_args()
     if a.long_nozzle: HOTEND[:] = HOTEND_LONG
     res = plan(a)

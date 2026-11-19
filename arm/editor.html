@@ -42,6 +42,12 @@
   <div class="muted" style="font-size:12px">Homeostat strand on the Kinova Gen3. Nothing here moves the arm.</div>
 
   <h2>Path</h2>
+  <label>Path from<select id="source" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
+  <div class="row" style="margin:6px 0 8px">
+    <a href="/sim" target="_blank" rel="noopener"><button type="button">Open the simulator</button></a>
+    <button type="button" id="loadFile">Load a file…</button><input type="file" id="fileIn" accept=".json,application/json" hidden>
+    <span id="sourceInfo" class="muted" style="font-size:12px;align-self:center"></span>
+  </div>
   <div class="grid">
     <label>Start at t (s) · 0 = whole run<input type="number" id="from_t" step="0.5" min="0"></label>
     <label>Run length (s)<input type="number" id="seconds" step="1" min="1"></label>
@@ -89,6 +95,8 @@
     <b>Air-run on the arm</b> <span class="muted">moves the arm along the checked plan, raised; nothing is extruded</span>
     <div class="row" style="align-items:flex-end">
       <label style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
+      <label style="width:130px">Speed<select id="fast" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
+        <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option></select></label>
       <button id="airrun">Air-run…</button>
       <button id="park">Park at Home…</button>
     </div>
@@ -144,7 +152,7 @@ function inSweep(p) {
   if (!$("use_sweep").checked || !sweep) return true;
   const a = Math.atan2(p[1], p[0]) * 180 / Math.PI; return a >= sweep[0] && a <= sweep[1];
 }
-const key = () => JSON.stringify([FIELDS.map(k => P[k]), $("use_sweep").checked]);
+const key = () => JSON.stringify([FIELDS.map(k => P[k]), P.source || "", $("use_sweep").checked]);
 
 // ------------------------------------------------------------------ view
 const cv = $("view"), g = cv.getContext("2d");
@@ -229,6 +237,21 @@ function draw() {
   // centre mark on the table
   const cx = P.x, cy = P.y; line([cx - 0.02, cy, tz], [cx + 0.02, cy, tz], "#1d1e20", 1.5); line([cx, cy - 0.02, tz], [cx, cy + 0.02, tz], "#1d1e20", 1.5);
   drawHandles(W);
+  drawAxes();
+}
+function drawAxes() {     // which way world x, y and z point from here, coloured like the rings that turn about them
+  const O = [110, 120], t = cam.target, o = proj(t);
+  const axes = [["X", [1, 0, 0], "#d1495b"], ["Y", [0, 1, 0], "#139fa0"], ["Z", [0, 0, 1], "#e39b25"]].map(([n, e, col]) => {
+    const q = proj([t[0] + e[0] * 0.05, t[1] + e[1] * 0.05, t[2] + e[2] * 0.05]); return [n, q[0] - o[0], q[1] - o[1], col];
+  });
+  const s = 75 / Math.max(...axes.map(a => Math.hypot(a[1], a[2])), 1e-9);
+  g.lineWidth = 4; g.font = "bold 26px system-ui";
+  for (const [n, dx, dy, col] of axes) {
+    g.strokeStyle = col; g.beginPath(); g.moveTo(O[0], O[1]); g.lineTo(O[0] + dx * s, O[1] + dy * s); g.stroke();
+    g.fillStyle = col; g.fillText(n, O[0] + dx * s * 1.3 - 8, O[1] + dy * s * 1.3 + 9);
+  }
+  g.fillStyle = "#1d1e20"; g.font = "24px system-ui";
+  g.fillText(`Turn ${(+P.yaw).toFixed(0)}°   Tilt X ${(+P.roll).toFixed(0)}°   Tilt Y ${(+P.pitch).toFixed(0)}°`, 28, 240);
 }
 
 // ------------------------------------------------------------------ panel
@@ -252,19 +275,19 @@ function stats() {
   } else rows.push(["Printable", `<span class="muted">not checked for this placement</span>`]);
   $("stats").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
   const f = v => +(+v).toFixed(4);
-  $("cmd").textContent = `python plan.py --from-t ${f(P.from_t)} --seconds ${f(P.seconds)} --scale ${f(P.scale)} --x ${f(P.x)} --y ${f(P.y)} --yaw ${f(P.yaw)} --roll ${f(P.roll)} --pitch ${f(P.pitch)} --table ${f(P.table)} --lift ${f(P.lift / 1000)}`;
+  $("cmd").textContent = `python plan.py ${P.source ? "--path-file plans/imports/" + P.source + ".json " : ""}--from-t ${f(P.from_t)} --seconds ${f(P.seconds)} --scale ${f(P.scale)} --x ${f(P.x)} --y ${f(P.y)} --yaw ${f(P.yaw)} --roll ${f(P.roll)} --pitch ${f(P.pitch)} --table ${f(P.table)} --lift ${f(P.lift / 1000)}`;
 }
 function render() { draw(); stats(); }
 function syncFields() { for (const k of FIELDS) if (document.activeElement !== $(k)) $(k).value = +(+P[k]).toFixed(k === "x" || k === "y" || k === "table" ? 3 : 2); }
 
 // ------------------------------------------------------------------ server
 const qs = o => new URLSearchParams(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)]))).toString();
-const body = () => Object.assign({}, P, { lift: P.lift / 1000, use_sweep: $("use_sweep").checked });
+const body = () => Object.assign({}, P, { lift: P.lift / 1000, use_sweep: $("use_sweep").checked, source: P.source || "" });
 async function loadShape() {
-  const k = [P.preset, P.seconds, P.scale, P.from_t].join();
+  const k = [P.preset, P.seconds, P.scale, P.from_t, P.source || ""].join();
   if (k === baseKey) return;
   baseKey = k;
-  const r = await fetch("/api/shape?" + qs({ preset: P.preset, seconds: P.seconds, scale: P.scale, from_t: P.from_t }));
+  const r = await fetch("/api/shape?" + qs({ preset: P.preset, seconds: P.seconds, scale: P.scale, from_t: P.from_t, source: P.source || "" }));
   const d = await r.json(); if (!r.ok) { $("hint").textContent = d.error; return; }
   if (k !== baseKey) return;
   base = d.base; baseScale = d.scale; render();
@@ -300,7 +323,7 @@ function changed(opts = {}) {
 }
 
 // ------------------------------------------------------------------ handles on the object (like a slicer's)
-const HINT = "Drag the path to move it. Orange ring turns it, red and teal rings tilt it, corner squares scale it. Drag empty space to turn the view; right-drag or Shift-drag pans; wheel zooms.";
+const HINT = "Drag the path to move it. Orange ring turns it, red and teal rings tilt it, corner squares scale it. Click empty space (or Esc) to put the handles away, click the path to bring them back. Drag empty space to turn the view; right-drag or Shift-drag pans; wheel zooms.";
 const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = a => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
@@ -323,9 +346,9 @@ function handles(W) {
   return { lo, hi, c, R, rings, corners };
 }
 const hkey = h => h ? h.kind + (h.id || "") + (h.i === undefined ? "" : h.i) : "";
-let hover = null;
+let hover = null, selected = true;
 function drawHandles(W) {
-  const H = handles(W); if (!H) return;
+  const H = handles(W); if (!H || !selected) return;
   const { lo, hi } = H, box = [];
   for (const z of [lo[2], hi[2]]) box.push([[lo[0], lo[1], z], [hi[0], lo[1], z]], [[hi[0], lo[1], z], [hi[0], hi[1], z]], [[hi[0], hi[1], z], [lo[0], hi[1], z]], [[lo[0], hi[1], z], [lo[0], lo[1], z]]);
   for (const [x, y] of [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]]) box.push([[x, y, lo[2]], [x, y, hi[2]]]);
@@ -350,9 +373,9 @@ function canvasPt(e) { const r = cv.getBoundingClientRect(), sc = cv.width / r.w
 function hit(m) {
   const W = placed(), H = handles(W); if (!H) return null;
   const tol = 12 * m[2];
-  for (let i = 0; i < 4; i++) { const q = proj(H.corners[i]); if (Math.abs(m[0] - q[0]) < tol && Math.abs(m[1] - q[1]) < tol) return { kind: "scale", i }; }
+  if (selected) for (let i = 0; i < 4; i++) { const q = proj(H.corners[i]); if (Math.abs(m[0] - q[0]) < tol && Math.abs(m[1] - q[1]) < tol) return { kind: "scale", i }; }
   let best = null;
-  for (const r of H.rings) {
+  if (selected) for (const r of H.rings) {
     const q = r.pts.map(proj);
     for (let i = 1; i < q.length; i++) { const d = segDist(m, q[i - 1], q[i]); if (d < tol * 0.8 && (!best || d < best.d)) best = { kind: "ring", id: r.id, d }; }
   }
@@ -374,6 +397,7 @@ cv.addEventListener("pointerdown", e => {
   const m = canvasPt(e), h = e.button === 0 ? hit(m) : null;
   const pan = e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey && !h);
   drag = { x: m[0], y: m[1], mode: h ? h.kind : pan ? "pan" : "orbit", key: hkey(h), moved: false };
+  if (h) selected = true;
   if (h && h.kind === "ring") {
     drag.ring = h.id; const name = { yaw: "Turn", roll: "Tilt X", pitch: "Tilt Y" }[h.id];
     drag.label = () => name + " " + P[h.id].toFixed(0) + "°";
@@ -393,6 +417,7 @@ cv.addEventListener("pointermove", e => {
   }
   const dx = m[0] - drag.x, dy = m[1] - drag.y; drag.x = m[0]; drag.y = m[1];
   if (!dx && !dy) return;
+  if (drag.mode === "orbit" || drag.mode === "pan") drag.viewed = true;
   if (drag.mode === "orbit") { cam.yaw -= dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
   if (drag.mode === "pan") {        // slide the view: the scene follows the pointer
     const k = 1100 * cam.zoom / 3, cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
@@ -420,9 +445,42 @@ cv.addEventListener("pointerup", () => {
     P.x = +P.x.toFixed(3); P.y = +P.y.toFixed(3); P.yaw = +P.yaw.toFixed(1); P.roll = +P.roll.toFixed(1); P.pitch = +P.pitch.toFixed(1); P.scale = Math.round(P.scale);
     changed({ shape: drag.mode === "scale" });
   }
+  if (drag && drag.mode === "orbit" && !drag.moved && !drag.viewed) selected = false;     // a click on empty space
   drag = null; cv.style.cursor = "default"; draw();
 });
 cv.addEventListener("wheel", e => { e.preventDefault(); cam.zoom = Math.max(0.3, Math.min(8, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+
+let IMPORTS = [];
+async function loadSources(select) {
+  IMPORTS = await (await fetch("/api/imports")).json();
+  if (select) P.source = select;
+  if (P.source && !IMPORTS.some(i => i.name === P.source)) P.source = "";
+  $("source").innerHTML = `<option value="">Built-in model, preset ${P.preset}</option>` +
+    IMPORTS.map(i => `<option value="${i.name}">Simulator: ${i.preset || "seed " + i.seed}, t 0–${(+i.t_end).toFixed(0)} s, sent ${i.received}</option>`).join("");
+  $("source").value = P.source || "";
+  sourceUi();
+}
+function sourceUi() {
+  const imp = IMPORTS.find(i => i.name === P.source);
+  $("preset").disabled = $("seconds").disabled = !!imp;
+  $("sourceInfo").textContent = imp ? `${imp.points} points, made at ${imp.mm_per_90} mm per 90°, 4-D view xw ${(+imp.view.xw || 0).toFixed(2)} yw ${(+imp.view.yw || 0).toFixed(2)}` : "";
+}
+$("source").onchange = () => {
+  P.source = $("source").value;
+  const imp = IMPORTS.find(i => i.name === P.source);
+  if (imp && P.from_t >= imp.t_end) P.from_t = 0;          // otherwise nothing would be left
+  sourceUi(); changed({ shape: true });
+};
+$("loadFile").onclick = () => $("fileIn").click();
+$("fileIn").onchange = async () => {
+  const f = $("fileIn").files[0]; if (!f) return;
+  try {
+    const r = await fetch("/api/import", { method: "POST", body: await f.text() }), d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    await loadSources(d.name); changed({ shape: true });
+  } catch (e) { $("sourceInfo").textContent = "Couldn't load it: " + e.message; }
+  $("fileIn").value = "";
+};
 
 for (const k of FIELDS) $(k).addEventListener("change", () => {
   const v = parseFloat($(k).value);
@@ -458,11 +516,16 @@ $("plan").onclick = () => startPlan(false);
 $("planCheck").onclick = () => startPlan(true);
 let lastJob = null, pendingAction = null, armMoving = false;
 function stopNow() { $("runNote").textContent = "Stopping…"; fetch("/api/stop", { method: "POST", body: "{}" }).then(pollJob); }
-addEventListener("keydown", e => { if (armMoving && (e.key === "Escape" || e.key === " ")) { e.preventDefault(); stopNow(); } });
+addEventListener("keydown", e => {
+  if (armMoving && (e.key === "Escape" || e.key === " ")) { e.preventDefault(); stopNow(); return; }
+  if (e.key === "Escape" && e.target.tagName !== "INPUT") { selected = false; hover = null; draw(); }
+});
 // the plan's params come back from the server with lift in metres; the page keeps it in mm
-const sameParams = p => !!p && FIELDS.every(k => Math.abs((k === "lift" ? p[k] * 1000 : p[k]) - P[k]) < 1e-6);
+const sameParams = p => !!p && (p.source || "") === (P.source || "") && FIELDS.every(k => Math.abs((k === "lift" ? p[k] * 1000 : p[k]) - P[k]) < 1e-6);
 async function pollJob() {
-  const j = await (await fetch("/api/job")).json();
+  let j;
+  try { j = await (await fetch("/api/job")).json(); }
+  catch (e) { setTimeout(pollJob, 2000); return; }        // the editor is restarting: keep asking
   renderJob(j);
   if (j.state === "running") setTimeout(pollJob, j.kind === "plan" ? 1500 : 800);
 }
@@ -473,12 +536,15 @@ function renderJob(j) {
   $("log").hidden = !j.log.length; $("log").textContent = j.log.join("\n"); $("log").scrollTop = 1e9;
   const r = j.result, c = r && r.check, clear = !!c && !(c.ik_refused + c.clashes + c.traj_errors), same = r && sameParams(r.params);
   let html = "";
-  if (running && j.kind === "plan") html = `<span class="muted">Planning… a minute or two for the spiral, longer for big layouts, plus the arm check if asked.</span>`;
+  if (running && j.kind === "plan") {
+    const el = Math.max(0, Math.round(j.now - j.started)), last = [...j.log].reverse().find(l => !l.includes(" $ ")) || "";
+    html = `<span class="muted">Planning, ${Math.floor(el / 60)}:${String(el % 60).padStart(2, "0")} so far. Big layouts take several minutes on the Pi.<br>${last.replace(/^\S+\s+/, "").trim()}</span>`;
+  }
   else if (j.state === "failed" && j.kind === "plan") html = `<span class="bad">The plan failed: see the log.</span>`;
   else if (r) {
     html = `<div class="card"><b class="${r.fails ? "bad" : "good"}">${(100 * r.printable_mm / r.total_mm).toFixed(0)}% printable</b> (${r.printable_mm.toFixed(0)} of ${r.total_mm.toFixed(0)} mm; ${r.fails} of ${r.points} points without a safe pose)` +
       (c ? `<br>Arm check: IK refused ${c.ik_refused}, clashes ${c.clashes}, trajectory errors ${c.traj_errors}, worst joint difference ${c.worst_dq}° <b class="${clear ? "good" : "bad"}">${clear ? "all clear" : "problems"}</b>` : "<br><span class='muted'>Not checked on the arm.</span>") +
-      (same ? "" : `<br><span class="warn">This result is for an earlier placement (scale ${r.params.scale}, x ${r.params.x}, y ${r.params.y}, turn ${r.params.yaw}°), not what's on screen now.</span>`) +
+      (same ? "" : `<br><span class="warn">This result is for an earlier placement (${r.params.source ? "simulator path " + r.params.source + ", " : ""}scale ${r.params.scale}, x ${r.params.x}, y ${r.params.y}, turn ${r.params.yaw}°), not what's on screen now.</span>`) +
       `<br><a href="${r.viewer}" target="_blank" rel="noopener">Open ${r.name} in the viewer</a></div>`;
   }
   $("jobOut").innerHTML = html;
@@ -491,7 +557,7 @@ function renderJob(j) {
   if (moving) $("confirmBox").hidden = true;
   $("runNote").textContent =
     moving ? (j.kind === "park" ? "Parking at Home…" : j.log.some(l => l.includes("MOVING THE ARM")) ? "The arm is moving." : "Asking the arm whether it can run this (no motion yet)…") :
-    j.kind === "airrun" && j.state === "failed" ? "The air-run didn't finish: see the log." :
+    j.kind === "airrun" && j.state === "failed" ? "The air-run didn't happen or didn't finish: " + (([...j.log].reverse().find(l => l.includes("FAILED: ")) || "").split("FAILED: ")[1] || "see the log.") :
     j.kind === "airrun" && j.state === "done" ? "Air-run finished; the arm is back at Home." :
     j.kind === "park" && j.state === "failed" ? "Parking didn't finish: see the log." :
     j.kind === "park" && j.state === "done" ? "Parked at Home." :
@@ -508,9 +574,10 @@ async function postJob(url, b) {
 $("airrun").onclick = () => {
   const r = lastJob && lastJob.result, mm = parseFloat($("raise_mm").value);
   if (!(mm >= 0 && mm <= 100)) { $("runNote").textContent = "Raise has to be 0 to 100 mm."; return; }
-  ask(`<b>The arm will move.</b> From Home to above the start of ${r.name}, along the path ${mm} mm above the planned height, ` +
+  const fast = +$("fast").value;
+  ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than printing` : ""}.</b> From Home to above the start of ${r.name}, along the path ${mm} mm above the planned height, ` +
       `then straight up and back to Home. Nothing is extruded. Stand at the arm with the e-stop in reach: a Stop button shows here while it runs.`,
-      () => postJob("/api/airrun", { name: r.name, raise_mm: mm }));
+      () => postJob("/api/airrun", { name: r.name, raise_mm: mm, fast }));
 };
 $("park").onclick = () => ask(`<b>The arm will move</b> to Home by a joint move, from wherever it is now. Check nothing is in its way.`,
                               () => postJob("/api/park", {}));
@@ -525,6 +592,10 @@ $("stopArm").onclick = stopNow;
     $("use_sweep").disabled = !sweep; render();
   });
   fetch("/api/armref").then(r => r.json()).then(d => { armRef = d.points; draw(); });
+  const want = new URLSearchParams(location.search).get("import");       // "Place it in the layout editor" from the simulator
+  if (want) history.replaceState(null, "", location.pathname);
+  await loadSources(want || undefined);
+  if (want) { const imp = IMPORTS.find(i => i.name === want); if (imp && P.from_t >= imp.t_end) P.from_t = 0; }
   await Promise.all([loadShape(), loadReach()]);
   frameObject(); scheduleQuick(true); pollJob();
 })();

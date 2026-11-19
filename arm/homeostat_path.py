@@ -64,6 +64,25 @@ def path_mm(preset=0, seconds=30.0, mm_per_90=120.0, step_mm=2.0, xw=0.0, yw=0.4
     S = np.arange(0, s[-1], step_mm)
     return np.c_[[np.interp(S, s, P[:, k]) for k in range(3)]].T, np.interp(S, s, h[:, 0])
 
+def path_from_export(d, mm_per_90, step_mm=2.0):
+    """A path sent from the simulator page ("Send to the arm"): rows of t, x, y, z in mm at the page's
+    own mm per 90 deg, page axes, already thinned like path_mm. Rescaled to mm_per_90, resampled every
+    step_mm. Returns (P_mm, T) like path_mm."""
+    A = np.asarray(d["points"], float)
+    P = A[:, 1:4] * (mm_per_90 / float(d["mm_per_90"]))
+    s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))]
+    S = np.arange(0, s[-1], step_mm)
+    return np.c_[[np.interp(S, s, P[:, k]) for k in range(3)]].T, np.interp(S, s, A[:, 0])
+
+
+def load_path(path_file, preset, seconds, mm_per_90, step_mm=2.0):
+    """The planner's path: from a simulator export when path_file is given, else from the built-in model."""
+    if path_file:
+        import json
+        return path_from_export(json.load(open(path_file)), mm_per_90, step_mm)
+    return path_mm(preset, seconds, mm_per_90, step_mm)
+
+
 if __name__ == "__main__":
     P, T = path_mm()
     print(len(P), "points; t", T[0], "->", T[-1], "; extent mm", P.min(0).round(1), P.max(0).round(1))

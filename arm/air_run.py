@@ -31,6 +31,7 @@ from kortex_api.autogen.messages import Base_pb2, Session_pb2
 PLAN = sys.argv[1] if len(sys.argv) > 1 else "spiral_std200_checked.json"
 RAISE = float(os.environ.get("AIR_RAISE_MM", 20)) / 1000
 SPEED = float(os.environ.get("AIR_SPEED", 10)) / 1000
+FAST = float(os.environ.get("AIR_FAST", 1))        # run the whole thing this many times faster than printing (testing)
 BLEND = float(os.environ.get("AIR_BLEND_MM", 0.8)) / 1000
 ARMED = os.environ.get("KINOVA_CONFIRM") == "yes"
 CHUNK = 40
@@ -39,6 +40,9 @@ HOME_TOL = 2.0          # deg
 
 d = json.load(open(PLAN))
 wps = [w for w in d["waypoints"] if w["ok"]]
+if FAST > 1:   # faster runs: fewer, longer steps (every FAST-th point) rather than the same steps squeezed
+    step = int(round(FAST))
+    wps = [wps[i] for i in sorted(set(range(0, len(wps), step)) | {len(wps) - 1})]
 if not all(w["ok"] for w in d["waypoints"]):
     print("NOTE: %d planned points are unreachable and are skipped" % sum(not w["ok"] for w in d["waypoints"]))
 tips = np.array([w["tip"] for w in wps]) + [0, 0, RAISE]
@@ -68,9 +72,33 @@ up = tips[-1] + [0, 0, HOVER]
 LIMITS = {1: 128.9, 2: 147.8, 4: 120.3}   # joint index -> |limit| deg, from the arm
 MARGIN = 3.0
 MAX_STEP = 6.0                            # deg J1-J5 may move between neighbouring points
-JV = float(os.environ.get("AIR_JV", 5.0))          # deg/s cap per joint, keeps joint acceleration under the arm's 51 deg/s^2
+JV = float(os.environ.get("AIR_JV", 5.0)) * FAST   # deg/s cap per joint, keeps joint acceleration under the arm's 51 deg/s^2
 MIN_DT = float(os.environ.get("AIR_MIN_DT", 0.3))  # s per waypoint at least
-FINE = 2.0                                # deg per waypoint after splitting
+ACC = float(os.environ.get("AIR_ACC", 30.0))      # deg/s^2 planned to; the arm refuses over 51.6 (and measures it its own way)
+
+
+def smooth_times(steps, dt, acc, passes=400):
+    """Stretch step times until no joint changes speed faster than acc between steps (from rest, to rest)."""
+    d = [float(t) for t in dt]
+    z = np.zeros_like(np.asarray(steps[0], float))
+    for _ in range(passes):
+        v = [np.asarray(st, float) / t for st, t in zip(steps, d)]
+        worst = 0.0
+        for k in range(len(d) + 1):
+            vp = v[k - 1] if k > 0 else z
+            vn = v[k] if k < len(d) else z
+            span = ((d[k - 1] if k > 0 else 0) + (d[k] if k < len(d) else 0)) / (2 if 0 < k < len(d) else 1)
+            a = np.abs(vn - vp).max() / span
+            if a > acc:
+                f = min(1.5, math.sqrt(a / acc) * 1.01)
+                if k > 0: d[k - 1] *= f
+                if k < len(d): d[k] *= f
+            worst = max(worst, a)
+        if worst <= acc * 1.001:
+            break
+    return d
+SPEED *= FAST
+FINE = min(5.0, 2.0 * FAST)                                # deg per waypoint after splitting
 MAX_ROLL = 30.0                           # J6 only turns the tool about its own axis
 
 
@@ -151,26 +179,72 @@ try:
     if worst > MAX_STEP or roll > MAX_ROLL or near < MARGIN:
         sys.exit("Joint path not safe to run (step > %.0f deg or within %.0f deg of a limit). Not moving." % (MAX_STEP, MARGIN))
     dur = [max(L / SPEED, st.max() / JV, MIN_DT) for L, st in zip(seglen, steps)]
-    # one list from Home: joint move to above the start, down onto the path, the spiral, straight up
     approach = waypoint.duration(cur, q_above, 20.0)
-    moves = [("Home -> start -> spiral -> up (%d joint waypoints)" % len(chain), joint_list(chain, [approach] + dur))]
-    # validate everything before any motion (each Cartesian list is validated from where the arm stands)
+    # what stretching the time can fix: too fast, accelerating too hard, or the arm's curve through the
+    # waypoints overshooting a joint past its limit (steps too short for the curve)
+    TIMING = (Base_pb2.TRAJECTORY_ERROR_TYPE_INVALID_JOINT_ACCELERATION, Base_pb2.TRAJECTORY_ERROR_TYPE_INVALID_JOINT_SPEED,
+              Base_pb2.TRAJECTORY_ERROR_TYPE_INVALID_JOINT_POSITION)
+
+    def fit(qs, t0, first=1):
+        """Ask the arm about a joint list whose first waypoint is reached from where the arm stands. Where it
+        finds a joint too fast, accelerating too hard, or its curve overshooting a joint limit, slow the whole
+        list down evenly and ask again: uneven step times are what make its curve misbehave, so stretching
+        single steps makes things worse (found on the arm, 2026-11-19)."""
+        t = list(t0)
+        for rounds in range(1, 31):
+            rep = base.ValidateWaypointList(joint_list(qs, t)).trajectory_error_report.trajectory_error_elements
+            if not rep or any(e.error_type not in TIMING for e in rep):
+                break
+            f = 1.0
+            for e in rep:
+                if e.error_type == TIMING[2]:
+                    f = max(f, 1.15)
+                else:
+                    over = e.error_value / (e.max_value or 1)
+                    f = max(f, (math.sqrt(over) if e.error_type == TIMING[0] else over) * 1.03)
+            t = t[:first] + [min(x * f, 20.0) for x in t[first:]]
+        return t, rounds
+
+    # Steps timed against the joint acceleration limit (51.6 deg/s^2), stretched only where a joint changes
+    # speed or direction sharply, from rest and to rest.
+    path_signed = [((b_ - a_ + 180) % 360) - 180 for a_, b_ in zip(chain[:-1], chain[1:])]
+    MAX_WP = int(os.environ.get("AIR_MAX_WP", 900))   # the arm refuses a trajectory of more than 1000 waypoints
+    if FAST == 1 and len(chain) + 1 <= MAX_WP:
+        # one list from Home: joint move to above the start, a short hold, down onto the path, along it, up
+        qs = [chain[0]] + chain
+        times = smooth_times([np.array(waypoint.travel(cur, chain[0])), np.zeros(6)] + path_signed, [approach, 0.6] + dur, ACC)
+        times, rounds = fit(qs, times, first=1)          # never stretch the move out of Home (0)
+        print("timing fitted to the arm's limits in %d round(s)" % rounds)
+        moves = [("Home -> start -> path -> up (%d joint waypoints)" % len(qs), joint_list(qs, times))]
+        est = sum(times)
+    else:
+        # Faster than print speed, or more waypoints than the arm takes in one list: the move out of Home on
+        # its own (it ends at rest), then the path in parts of up to MAX_WP waypoints, each timed and checked
+        # by the arm from where it then stands, just before it runs. (As one list, the arm's curve through the
+        # join with the move out of Home overshoots the wrist past its limit at anything faster.)
+        path_times = smooth_times(path_signed, dur, ACC)
+        n = len(chain) - 1
+        cuts = list(range(0, n, MAX_WP)) + [n]
+        moves = [("Home -> above the start (joint move)", waypoint.build(cur, q_above, 20.0, "approach"))]
+        for c, (i0, i1) in enumerate(zip(cuts[:-1], cuts[1:])):
+            moves.append(("path part %d of %d%s (%d joint waypoints)" % (c + 1, len(cuts) - 1, "" if FAST == 1 else " at %gx" % FAST, i1 - i0),
+                          (i0, i1)))
+        est = approach + sum(path_times)
+    # validate before any motion
     bad = 0
     for name, wl in moves:
+        if isinstance(wl, tuple):
+            print("         %-34s timed and checked by the arm when it gets there" % name)
+            continue
         p = waypoint.problems(base, wl)
         if p:
             bad += 1; print("REFUSED  %-34s %s" % (name, "; ".join(p[:3])))
-    if bad:
-        print("retrying without blending")
-        moves = [(n, wl) for n, wl in moves]
-        moves[0][1].use_optimal_blending = False
-        bad = sum(bool(waypoint.problems(base, wl)) for n, wl in moves)
     print("validated %d moves with the arm: %d refused" % (len(moves), bad))
     if bad:
         sys.exit("Not moving.")
-    est = sum(dur) + approach
     if not ARMED:
-        print("Check only (about %.0f s of path at %.0f mm/s). Set KINOVA_CONFIRM=yes to run it." % (est, SPEED * 1000))
+        print("Check only (about %.0f s from Home to the end of the path%s). Set KINOVA_CONFIRM=yes to run it."
+              % (est, "" if FAST == 1 else ", asked for %gx print speed" % FAST))
         sys.exit(0)
 
     lock = armlock.take("homeostat air-run")
@@ -205,7 +279,19 @@ try:
 
     t_start = time.time()
     for name, wl in moves:
-        n = len(wl.waypoints)
+        if isinstance(wl, tuple):   # a part of the path, from where the arm now stands (at rest)
+            i0, i1 = wl
+            t, rounds = fit(chain[1 + i0:1 + i1], path_times[i0:i1], first=0)   # from rest: its first step may stretch too
+            wl = joint_list(chain[1 + i0:1 + i1], t)
+            p = waypoint.problems(base, wl)
+            if p:
+                fb = cyc.RefreshFeedback()
+                json.dump(dict(name=name, here=[a.position for a in fb.actuators], joints=[list(map(float, q)) for q in chain[1 + i0:1 + i1]],
+                               times=list(map(float, t)), problems=p), open("air_run_refused.json", "w"))
+                raise SystemExit("REFUSED %s: %s. The arm has stopped where that part starts: park it at Home." % (name, "; ".join(p[:2])))
+            print("  %s: timing fitted in %d round(s), %.0f s" % (name, rounds, sum(t)))
+            run(name, wl, 60 + 2 * sum(t))
+            continue
         run(name, wl, 60 + 2 * est)
     # home by a joint move, from straight above the spiral's end
     cur = [a.position for a in cyc.RefreshFeedback().actuators]

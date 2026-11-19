@@ -9,6 +9,12 @@ set -euo pipefail
 HOST=${ARM_HOST:-pi@armster}
 cd "$(dirname "$0")"
 
+# Restarting the service ends whatever it is doing: a plan, or an air-run with the arm moving.
+if [ "${FORCE:-}" != "1" ] && ssh "$HOST" 'curl -s -m 5 http://$(tailscale ip -4):8792/api/job' 2>/dev/null | grep -q '"state": "running"'; then
+  echo "The editor is busy (a plan or an air-run is running). Try again when it's done, or FORCE=1 ./deploy.sh." >&2
+  exit 1
+fi
+
 ssh "$HOST" 'mkdir -p ~/homeostat-arm/arm/plans'
 scp -q arm/*.py arm/editor.html arm/viewer_template.html "$HOST:homeostat-arm/arm/"
 scp -q deploy/homeostat-editor.service "$HOST:/tmp/homeostat-editor.service"
