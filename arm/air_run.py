@@ -132,11 +132,19 @@ try:
         qk = ik(P[k], E[k], q); n = int(math.ceil(dstep(q, qk)[:5].max() / FINE))
         if n > 1:   # split the segment so no joint swings more than FINE deg between waypoints
             R0, R1 = gen3.from_euler(*E[k - 1]), gen3.from_euler(*E[k])
-            for j in range(1, n):
-                f = j / n; qj = ik(P[k - 1] + f * (P[k] - P[k - 1]), gen3.euler_xyz(rot_lerp(R0, R1, f)), chain[-1])
-                chain.append(qj); seglen.append(np.linalg.norm(P[k] - P[k - 1]) / n)
-            qk = ik(P[k], E[k], chain[-1])
-            seglen.append(np.linalg.norm(P[k] - P[k - 1]) / n)
+            # the IK at a split point can land a little off the straight line in joint space, so check the
+            # steps that came out and split finer until they really are under FINE (or give up at 64)
+            while True:
+                sub, prev = [], chain[-1]
+                for j in range(1, n):
+                    fr = j / n; qj = ik(P[k - 1] + fr * (P[k] - P[k - 1]), gen3.euler_xyz(rot_lerp(R0, R1, fr)), prev)
+                    sub.append(qj); prev = qj
+                qk = ik(P[k], E[k], prev)
+                pts = [chain[-1]] + sub + [qk]
+                if max(dstep(a_, b_)[:5].max() for a_, b_ in zip(pts[:-1], pts[1:])) <= FINE * 1.1 or n >= 64:
+                    break
+                n *= 2
+            chain.extend(sub); seglen.extend([np.linalg.norm(P[k] - P[k - 1]) / n] * n)
         else:
             seglen.append(np.linalg.norm(P[k] - P[k - 1]))
         chain.append(qk); q = qk

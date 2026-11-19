@@ -71,6 +71,13 @@
     <button id="view-obj">Frame object</button>
     <button id="view-all">Whole arm</button>
   </div>
+  <h2>Table height (homing)</h2>
+  <div class="card" style="font-size:13px">
+    Hand-guide the claw tip down onto the table (hold the wrist button), then press Capture. Do three spots
+    or more, spread apart. Nothing is commanded to move: it only reads where you put the arm.
+    <div class="row"><button id="tCap">Capture</button><button id="tUse" disabled>Use it as the table height</button><button id="tClear">Clear</button></div>
+    <div id="tOut" class="muted" style="margin-top:6px"></div>
+  </div>
   <label class="check"><input type="checkbox" id="show_arm" checked> Show the arm, live (where it really is)</label>
   <label class="check"><input type="checkbox" id="use_sweep"> Keep inside the painting rig's working sweep <span id="sweepInfo" class="muted"></span></label>
 
@@ -495,6 +502,31 @@ for (const k of FIELDS) $(k).addEventListener("change", () => {
 });
 $("use_sweep").onchange = () => changed();
 $("show_arm").onchange = () => draw();
+function showTable(t) {
+  const rows = t.touches.map((p, i) => `#${i + 1} at ${p.at}: x ${p.tip[0].toFixed(3)} y ${p.tip[1].toFixed(3)} z ${p.tip[2].toFixed(4)} m`);
+  let sumry = t.touches.length ? `<b style="color:#1d1e20">Table at z ${t.mean.toFixed(4)} m</b> from ${t.touches.length} touch${t.touches.length > 1 ? "es" : ""}, ${t.spread_mm} mm between highest and lowest` +
+    (t.tilt_deg !== undefined ? `, off level by ${t.tilt_deg}°` : t.touches.length >= 3 ? ", spread the touches further apart (not in a line) to see how level it is" : ", capture 3 or more, spread apart, to see how level it is") +
+    (t.spread_mm > 3 ? `. <span class="warn">That's a lot of spread: check the tip touched each time, or shim the table.</span>` : ".") : "";
+  const saved = t.saved ? `<br>In use: z ${t.saved.z} m (measured ${t.saved.when}).` : "<br>No measured height saved yet: 0.16 m is the painting rig's figure.";
+  $("tOut").innerHTML = rows.join("<br>") + (rows.length ? "<br>" : "") + sumry + saved;
+  $("tUse").disabled = !t.touches.length; tableNow = t;
+}
+let tableNow = null;
+$("tCap").onclick = async () => {
+  $("tOut").textContent = "Reading the arm…";
+  const r = await fetch("/api/table/capture", { method: "POST", body: "{}" }), d = await r.json();
+  if (!r.ok) { $("tOut").textContent = d.error; return; } showTable(d);
+};
+$("tClear").onclick = async () => showTable(await (await fetch("/api/table/clear", { method: "POST", body: "{}" })).json());
+$("tUse").onclick = async () => {
+  const z = +tableNow.mean.toFixed(4);
+  const d = await (await fetch("/api/table/save", { method: "POST", body: JSON.stringify({ z }) })).json();
+  showTable(d); P.table = z; changed({ reach: true });
+};
+fetch("/api/table").then(r => r.json()).then(t => {
+  showTable(t);
+  if (t.saved && !localStorage.getItem("homeostat-layout")) { P.table = t.saved.z; changed({ reach: true }); }
+});
 $("flat").onclick = () => { P.roll = 0; P.pitch = 0; changed(); };
 $("fit").onclick = () => {          // largest scale at which every point is inside the reach (and sweep), same centre
   if (!base || !reachMap) return;

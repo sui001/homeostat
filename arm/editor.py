@@ -43,10 +43,40 @@ HOME = [0, 15, 230, 0, 55, 90]          # the arm's factory Home pose, deg
 LAST_RUN = os.path.join(PLANS, "last_run.json")   # the plan last air-run, so Park knows what may be in the way
 LIVE = os.path.join(HERE, "live.json")           # written by air_run.py / safe_park.py while they move the arm
 _idle = {"t": 0.0, "d": None}
+TABLE = os.path.join(PLANS, "table.json")        # the measured table height, the default for new layouts
+_touches = []                                    # tip positions captured by hand-guiding, this session
+
+
+def table_state():
+    out = dict(touches=_touches, saved=json.load(open(TABLE)) if os.path.exists(TABLE) else None)
+    if _touches:
+        z = np.array([t["tip"][2] for t in _touches])
+        out.update(mean=round(float(z.mean()), 4), spread_mm=round(float(np.ptp(z)) * 1000, 1))
+        xy = np.array([t["tip"][:2] for t in _touches])
+        spread_xy = float(np.linalg.svd(xy - xy.mean(0), compute_uv=False)[-1]) / math.sqrt(len(xy)) if len(xy) >= 3 else 0.0
+        out["spread_xy_mm"] = round(spread_xy * 1000, 1)
+        if len(_touches) >= 3 and spread_xy > 0.02:     # a plane through them (only if they span an area): how far off level
+            A = np.c_[[t["tip"][0] for t in _touches], [t["tip"][1] for t in _touches], np.ones(len(_touches))]
+            a, b, _ = np.linalg.lstsq(A, z, rcond=None)[0]
+            out["tilt_deg"] = round(float(np.degrees(np.arctan(np.hypot(a, b)))), 2)
+    return out
+
+
+_arm_read = threading.Lock()
 
 
 def read_arm_joints():
-    """The arm's joints, read directly (only when nothing of ours is moving it)."""
+    """The arm's joints, read directly (only when nothing of ours is moving it). One reading at a time:
+    two sessions opened at once can time out. One retry."""
+    with _arm_read:
+        try:
+            return _read_arm_joints()
+        except Exception:
+            time.sleep(0.5)
+            return _read_arm_joints()
+
+
+def _read_arm_joints():
     sys.path.insert(0, KINOVA)
     import kenv; kenv.load()
     from kortex_api.TCPTransport import TCPTransport
@@ -347,6 +377,8 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/armref":     # the arm standing at Home, as drawn for scale (base, joints, flange, tip)
                 F = gen3.frames(HOME, plan.TOOL)
                 return self.send(200, dict(points=[[0, 0, 0]] + [f[:3, 3].round(4).tolist() for f in F]))
+            if u.path == "/api/table":
+                return self.send(200, table_state())
             if u.path == "/api/live":
                 return self.send(200, live_state())
             if u.path == "/api/job":
@@ -392,6 +424,24 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "something is already running"})
             if u.path == "/api/import":
                 return self.send(200, {"name": save_import(body)})
+            if u.path == "/api/table/capture":       # reads the arm only: you put the tip there by hand
+                if not ON_ARM:
+                    return self.send(400, {"error": "measuring the table works from the editor on armster"})
+                if job["state"] == "running" and job["kind"] != "plan":
+                    return self.send(409, {"error": "the arm is being moved by the editor; wait for it"})
+                q = read_arm_joints()
+                tip = gen3.fk(q, plan.TOOL)[:3, 3]
+                _touches.append(dict(tip=[round(float(v), 4) for v in tip], joints=[round(v, 2) for v in q], at=time.strftime("%H:%M:%S")))
+                return self.send(200, table_state())
+            if u.path == "/api/table/clear":
+                _touches.clear()
+                return self.send(200, table_state())
+            if u.path == "/api/table/save":
+                z = float(body.get("z"))
+                if not 0.0 <= z <= 0.6:
+                    return self.send(400, {"error": "table height must be 0-0.6 m"})
+                json.dump(dict(z=round(z, 4), touches=len(_touches), when=time.strftime("%Y-%m-%d %H:%M")), open(TABLE, "w"))
+                return self.send(200, table_state())
             p = nums(body)
             p["source"] = str(body.get("source", "") or "")
             p["path_file"] = source_file(p["source"])
