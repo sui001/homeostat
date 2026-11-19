@@ -1,5 +1,5 @@
 [Unit]
-Description=Homeostat print layout editor (plans and checks; never moves the arm)
+Description=Homeostat print layout editor (plans and checks; moves the arm only for a confirmed air-run or park)
 After=network-online.target tailscaled.service
 Wants=network-online.target
 

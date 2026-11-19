@@ -4,8 +4,10 @@ see what is printable, then plan it and check it on the arm. Cura's build plate,
 
     python editor.py            then open http://localhost:8792
 
-It never moves the arm: "Plan and check" runs plan.py, then arm_sim.py, which only asks the arm for IK
-and trajectory validation.
+"Plan" and "Plan and check" never move the arm: arm_sim.py only asks the arm for IK and trajectory
+validation. On armster (EDITOR_ON_ARM=1) the page can also air-run a checked plan (air_run.py: the path,
+raised, no extrusion) and park the arm at Home. Those move the arm, only after a confirm on the page,
+and the page's Stop button interrupts the script and sends the arm Stop (arm_stop.py).
 
 Where it runs:
   on a laptop        binds 127.0.0.1; the arm check copies the scripts to armster and runs it there by ssh.
@@ -13,11 +15,11 @@ Where it runs:
 EDITOR_HOST        address to listen on: 127.0.0.1 (default), or "tailscale" for this machine's
                    Tailscale address only, so it is not on the arm's wired network or the Wi-Fi.
 """
-import json, math, os, re, subprocess, sys, threading, time, traceback
+import json, math, os, re, signal, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
-import plan, editor_core as ec
+import gen3, plan, editor_core as ec
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLANS = os.path.join(HERE, "plans")
@@ -32,7 +34,11 @@ NUM = ("preset", "seconds", "scale", "from_t", "x", "y", "table", "lift", "yaw",
 
 _reach, _reach_lock = {}, threading.Lock()
 _sweep = {"state": "loading", "sweep": None}
-job = {"state": "idle", "log": [], "result": None}
+# one job at a time. kind: plan | airrun | park. "result" is the last plan's, kept across air-runs.
+job = {"state": "idle", "kind": None, "log": [], "result": None, "run": None, "stop": False}
+_proc = [None]            # the motion script running now, for Stop
+KINOVA = os.path.expanduser("~/kinova")
+HOME = [0, 15, 230, 0, 55, 90]          # the arm's factory Home pose, deg
 _quick_gen = [0]          # a newer quick check makes older ones stop early
 _job_lock = threading.Lock()
 
@@ -119,12 +125,83 @@ def plan_job(p, check):
             check_summary = dict(ik_refused=len(c["ik_refused"]), clashes=len(c["clashes"]),
                                  traj_errors=len(c["traj_errors"]), worst_dq=round(c["worst_dq"], 2))
         job["result"] = dict(name=name, viewer="/plans/%s.html" % name, printable_mm=d["printable_mm"],
-                             total_mm=d["total_mm"], fails=d["fails"], points=len(d["waypoints"]), check=check_summary)
+                             total_mm=d["total_mm"], fails=d["fails"], points=len(d["waypoints"]), check=check_summary,
+                             params=p, checked=bool(c))
         job["state"] = "done"
         log("done: %.0f of %.0f mm printable" % (d["printable_mm"], d["total_mm"]))
     except Exception as e:
         log("FAILED: %s" % e)
         job["state"] = "failed"
+
+
+def stream(cmd, env_extra, cwd=HERE):
+    """Run a script, its output going to the job log line by line. Returns the exit code."""
+    log("$ " + " ".join(os.path.basename(c) if c == sys.executable else c for c in cmd))
+    p = subprocess.Popen(cmd, cwd=cwd, env=dict(os.environ, **env_extra), stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, bufsize=1)
+    _proc[0] = p
+    try:
+        for line in p.stdout:
+            log("  " + line.rstrip())
+        return p.wait()
+    finally:
+        _proc[0] = None
+
+
+def airrun_job(name, raise_mm):
+    try:
+        path = os.path.join("plans", name + "_checked.json")
+        env = {"AIR_RAISE_MM": "%g" % raise_mm}
+        log("asking the arm whether it can run this, raised %g mm (no motion)" % raise_mm)
+        if stream([sys.executable, "-u", "air_run.py", path], env):
+            raise RuntimeError("the arm can't run it like this; nothing moved")
+        if job["stop"]:
+            raise RuntimeError("stopped before moving")
+        log("MOVING THE ARM")
+        rc = stream([sys.executable, "-u", "air_run.py", path], dict(env, KINOVA_CONFIRM="yes"))
+        job["run"] = dict(name=name, raise_mm=raise_mm, ok=rc == 0 and not job["stop"], stopped=job["stop"])
+        if job["stop"]:
+            raise RuntimeError("stopped part way. Park the arm at Home before the next run.")
+        if rc:
+            raise RuntimeError("air_run.py exited %d" % rc)
+        job["state"] = "done"; log("done")
+    except Exception as e:
+        log("FAILED: %s" % e); job["state"] = "failed"
+
+
+def park_job():
+    try:
+        rc = stream([sys.executable, "-u", os.path.join(KINOVA, "goto_pose.py")],
+                    {"KINOVA_TARGET": "Home", "KINOVA_CONFIRM": "yes"}, cwd=KINOVA)
+        if job["stop"]:
+            raise RuntimeError("stopped part way")
+        if rc:
+            raise RuntimeError("goto_pose.py exited %d" % rc)
+        job["state"] = "done"; log("parked at Home")
+    except Exception as e:
+        log("FAILED: %s" % e); job["state"] = "failed"
+
+
+def stop_arm():
+    job["stop"] = True
+    log("STOP pressed")
+    p = _proc[0]
+    if p and p.poll() is None:
+        p.send_signal(signal.SIGINT)          # air_run.py sends Stop itself on Ctrl-C
+    # and always tell the arm directly: goto_pose.py does not stop the arm on Ctrl-C
+    r = subprocess.run([sys.executable, "arm_stop.py"], cwd=HERE, capture_output=True, text=True, timeout=30)
+    log("  " + (r.stdout + r.stderr).strip().splitlines()[-1] if (r.stdout + r.stderr).strip() else "  arm_stop.py ran")
+
+
+def start_job(kind, target, args=()):
+    with _job_lock:
+        if job["state"] == "running":
+            return False
+        keep = job["result"]
+        job.update(state="running", kind=kind, log=[], stop=False, run=None,
+                   result=None if kind == "plan" else keep)
+    threading.Thread(target=target, args=args, daemon=True).start()
+    return True
 
 
 class H(BaseHTTPRequestHandler):
@@ -153,8 +230,11 @@ class H(BaseHTTPRequestHandler):
                     _sweep["state"] = "loading"
                     threading.Thread(target=load_sweep, daemon=True).start()
                 return self.send(200, _sweep)
+            if u.path == "/api/armref":     # the arm standing at Home, as drawn for scale (base, joints, flange, tip)
+                F = gen3.frames(HOME, plan.TOOL)
+                return self.send(200, dict(points=[[0, 0, 0]] + [f[:3, 3].round(4).tolist() for f in F]))
             if u.path == "/api/job":
-                return self.send(200, job)
+                return self.send(200, dict(job, on_arm=ON_ARM))
             m = re.fullmatch(r"/plans/(layout-[0-9-]+(?:_checked)?\.(html|json))", u.path)
             if m and os.path.exists(os.path.join(PLANS, m.group(1))):
                 ct = "text/html; charset=utf-8" if m.group(2) == "html" else "application/json"
@@ -167,6 +247,28 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            if u.path == "/api/stop":
+                if not ON_ARM:
+                    return self.send(400, {"error": "Stop works on armster only"})
+                stop_arm()
+                return self.send(200, {"stopped": True})
+            if u.path in ("/api/airrun", "/api/park"):
+                if not ON_ARM:
+                    return self.send(400, {"error": "the arm can only be moved from the editor on armster"})
+                if u.path == "/api/park":
+                    ok = start_job("park", park_job)
+                else:
+                    name = str(body.get("name", ""))
+                    raise_mm = float(body.get("raise_mm", 20))
+                    if not re.fullmatch(r"layout-[0-9-]+", name) or not os.path.exists(os.path.join(PLANS, name + "_checked.json")):
+                        return self.send(400, {"error": "no checked plan called %r" % name})
+                    if not (0 <= raise_mm <= 100):
+                        return self.send(400, {"error": "raise must be 0-100 mm"})
+                    c = json.load(open(os.path.join(PLANS, name + "_checked.json"))).get("arm_check") or {}
+                    if c.get("ik_refused") or c.get("clashes") or c.get("traj_errors"):
+                        return self.send(400, {"error": "that plan did not pass the arm check"})
+                    ok = start_job("airrun", airrun_job, (name, raise_mm))
+                return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "something is already running"})
             p = nums(body)
             if u.path == "/api/quick":
                 W, T = placed(p)
@@ -179,11 +281,8 @@ class H(BaseHTTPRequestHandler):
                 res["W"] = W.round(5).tolist()
                 return self.send(200, res)
             if u.path == "/api/plan":
-                with _job_lock:
-                    if job["state"] == "running":
-                        return self.send(409, {"error": "a plan is already running"})
-                    job.update(state="running", log=[], result=None)
-                threading.Thread(target=plan_job, args=(p, bool(body.get("check"))), daemon=True).start()
+                if not start_job("plan", plan_job, (p, bool(body.get("check")))):
+                    return self.send(409, {"error": "something is already running"})
                 return self.send(200, {"started": True})
             self.send(404, {"error": "not found"})
         except Exception as e:

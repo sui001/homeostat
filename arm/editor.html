@@ -24,6 +24,11 @@
   pre { background: #fff; border: 1px solid #dddcd6; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; border-radius: 6px; max-height: 180px; overflow: auto; margin: 6px 0 0; }
   .good { color: #1e7d45; } .bad { color: #c0392b; } .warn { color: #b26a00; } .muted { color: #8b8a84; }
   @media (max-width: 1100px) { main { flex-direction: column; } aside { width: 100%; } }
+  [hidden] { display: none !important; }
+  button.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
+  button.stop { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 16px 36px; font-size: 20px; font-weight: 700;
+                 background: #c0392b; color: #fff; border: 3px solid #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+  .confirm { margin-top: 8px; padding: 8px 10px; border: 2px solid #c0392b; border-radius: 6px; background: #fdf3f2; }
   code { font-size: 11px; word-break: break-all; }
   .check { font-size: 12px; color: #66655f; display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-direction: row; }
 </style></head>
@@ -60,6 +65,7 @@
     <button id="view-obj">Frame object</button>
     <button id="view-all">Whole arm</button>
   </div>
+  <label class="check"><input type="checkbox" id="show_arm" checked> Show the arm at Home, to scale</label>
   <label class="check"><input type="checkbox" id="use_sweep"> Keep inside the painting rig's working sweep <span id="sweepInfo" class="muted"></span></label>
 
   <h2>Printability</h2>
@@ -79,6 +85,20 @@
     <button id="planCheck">Plan and check on the arm</button>
   </div>
   <div id="jobOut" style="margin-top:6px"></div>
+  <div id="runBox" class="card" hidden style="margin-top:8px">
+    <b>Air-run on the arm</b> <span class="muted">moves the arm along the checked plan, raised; nothing is extruded</span>
+    <div class="row" style="align-items:flex-end">
+      <label style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
+      <button id="airrun">Air-run…</button>
+      <button id="park">Park at Home…</button>
+    </div>
+    <div id="confirmBox" class="confirm" hidden>
+      <div id="confirmText"></div>
+      <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
+    </div>
+    <div id="runNote" class="muted" style="font-size:12px;margin-top:6px"></div>
+    <button id="stopArm" class="stop" hidden>Stop the arm <span style="font-weight:400;font-size:14px">(Esc or Space)</span></button>
+  </div>
   <pre id="log" hidden></pre>
   <h2>Same thing from the command line</h2>
   <code id="cmd"></code>
@@ -154,7 +174,7 @@ function bands() {
   }
   return out;
 }
-let BANDS = [];
+let BANDS = [], armRef = null;
 
 function draw() {
   g.clearRect(0, 0, cv.width, cv.height);
@@ -178,6 +198,16 @@ function draw() {
   if ($("use_sweep").checked && sweep) {
     for (const a of sweep) line([0, 0, tz], [1.0 * Math.cos(a * Math.PI / 180), 1.0 * Math.sin(a * Math.PI / 180), tz], "#8e5cc9", 2, [10, 8]);
     poly(ring(1.0, tz, sweep[0] * Math.PI / 180, sweep[1] * Math.PI / 180, 48), "#8e5cc9", 1.5);
+  }
+  // the arm standing at Home, to scale: a reference, it doesn't move here
+  if (armRef && $("show_arm").checked) {
+    const R = [0.06, 0.05, 0.05, 0.045, 0.045, 0.04, 0.04];
+    for (let i = 1; i < armRef.length - 1; i++) {
+      const a = proj(armRef[i - 1]), b = proj(armRef[i]), k = 1100 * cam.zoom / (3 - (a[2] + b[2]) / 2);
+      g.strokeStyle = "rgba(59,111,214,0.45)"; g.lineCap = "round"; g.lineWidth = Math.max(2, 2 * R[i - 1] * k);
+      g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); g.lineCap = "butt";
+    }
+    line(armRef[armRef.length - 2], armRef[armRef.length - 1], "#e39b25", 4);      // flange to the tool tip
   }
   // the arm's base column
   for (const z of [0, 0.2848]) poly(ring(0.065, z, -Math.PI, Math.PI, 32), "#3b6fd6", 2);
@@ -262,6 +292,7 @@ async function runQuick() {
 }
 function changed(opts = {}) {
   localStorage.setItem("homeostat-layout", JSON.stringify(P));
+  if (lastJob) renderJob(lastJob);
   syncFields(); render();
   if (opts.shape) setTimeout(loadShape, 250);
   if (opts.reach) loadReach();
@@ -269,7 +300,7 @@ function changed(opts = {}) {
 }
 
 // ------------------------------------------------------------------ handles on the object (like a slicer's)
-const HINT = "Drag the path to move it. Orange ring turns it, red and teal rings tilt it, corner squares scale it. Drag empty space to turn the view; wheel zooms.";
+const HINT = "Drag the path to move it. Orange ring turns it, red and teal rings tilt it, corner squares scale it. Drag empty space to turn the view; right-drag or Shift-drag pans; wheel zooms.";
 const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = a => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
@@ -341,7 +372,8 @@ cv.addEventListener("contextmenu", e => e.preventDefault());
 cv.addEventListener("pointerdown", e => {
   cv.setPointerCapture(e.pointerId);
   const m = canvasPt(e), h = e.button === 0 ? hit(m) : null;
-  drag = { x: m[0], y: m[1], mode: h ? h.kind : "orbit", key: hkey(h), moved: false };
+  const pan = e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey && !h);
+  drag = { x: m[0], y: m[1], mode: h ? h.kind : pan ? "pan" : "orbit", key: hkey(h), moved: false };
   if (h && h.kind === "ring") {
     drag.ring = h.id; const name = { yaw: "Turn", roll: "Tilt X", pitch: "Tilt Y" }[h.id];
     drag.label = () => name + " " + P[h.id].toFixed(0) + "°";
@@ -362,6 +394,11 @@ cv.addEventListener("pointermove", e => {
   const dx = m[0] - drag.x, dy = m[1] - drag.y; drag.x = m[0]; drag.y = m[1];
   if (!dx && !dy) return;
   if (drag.mode === "orbit") { cam.yaw -= dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
+  if (drag.mode === "pan") {        // slide the view: the scene follows the pointer
+    const k = 1100 * cam.zoom / 3, cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
+    const right = [cy, -sy, 0], up = [sp * sy, sp * cy, cp];
+    cam.target = cam.target.map((v, i) => v - right[i] * dx / k + up[i] * dy / k); draw(); return;
+  }
   drag.moved = true;
   if (drag.mode === "move") {
     const [[a, b], [c, d]] = screenPerMetre(), det = a * d - b * c; if (Math.abs(det) < 1e-6) return;
@@ -394,6 +431,7 @@ for (const k of FIELDS) $(k).addEventListener("change", () => {
   changed({ shape: ["preset", "seconds", "scale", "from_t"].includes(k), reach: k === "table" });
 });
 $("use_sweep").onchange = () => changed();
+$("show_arm").onchange = () => draw();
 $("flat").onclick = () => { P.roll = 0; P.pitch = 0; changed(); };
 $("fit").onclick = () => {          // largest scale at which every point is inside the reach (and sweep), same centre
   if (!base || !reachMap) return;
@@ -418,20 +456,65 @@ async function startPlan(check) {
 }
 $("plan").onclick = () => startPlan(false);
 $("planCheck").onclick = () => startPlan(true);
+let lastJob = null, pendingAction = null, armMoving = false;
+function stopNow() { $("runNote").textContent = "Stopping…"; fetch("/api/stop", { method: "POST", body: "{}" }).then(pollJob); }
+addEventListener("keydown", e => { if (armMoving && (e.key === "Escape" || e.key === " ")) { e.preventDefault(); stopNow(); } });
+// the plan's params come back from the server with lift in metres; the page keeps it in mm
+const sameParams = p => !!p && FIELDS.every(k => Math.abs((k === "lift" ? p[k] * 1000 : p[k]) - P[k]) < 1e-6);
 async function pollJob() {
   const j = await (await fetch("/api/job")).json();
-  const running = j.state === "running";
+  renderJob(j);
+  if (j.state === "running") setTimeout(pollJob, j.kind === "plan" ? 1500 : 800);
+}
+function renderJob(j) {
+  lastJob = j; if (!j) return;
+  const running = j.state === "running", moving = running && j.kind !== "plan";
   $("plan").disabled = $("planCheck").disabled = running;
   $("log").hidden = !j.log.length; $("log").textContent = j.log.join("\n"); $("log").scrollTop = 1e9;
-  if (running) $("jobOut").innerHTML = `<span class="muted">Planning… this takes a minute or two${j.log.some(l => l.includes("armster")) ? ", plus the arm check" : ""}.</span>`;
-  else if (j.state === "done" && j.result) {
-    const r = j.result, c = r.check;
-    $("jobOut").innerHTML = `<div class="card"><b class="${r.fails ? "bad" : "good"}">${(100 * r.printable_mm / r.total_mm).toFixed(0)}% printable</b> (${r.printable_mm.toFixed(0)} of ${r.total_mm.toFixed(0)} mm; ${r.fails} of ${r.points} points without a safe pose)` +
-      (c ? `<br>Arm check: IK refused ${c.ik_refused}, clashes ${c.clashes}, trajectory errors ${c.traj_errors}, worst joint difference ${c.worst_dq}° <b class="${c.ik_refused + c.clashes + c.traj_errors ? "bad" : "good"}">${c.ik_refused + c.clashes + c.traj_errors ? "problems" : "all clear"}</b>` : "<br><span class='muted'>Not checked on the arm.</span>") +
+  const r = j.result, c = r && r.check, clear = !!c && !(c.ik_refused + c.clashes + c.traj_errors), same = r && sameParams(r.params);
+  let html = "";
+  if (running && j.kind === "plan") html = `<span class="muted">Planning… a minute or two for the spiral, longer for big layouts, plus the arm check if asked.</span>`;
+  else if (j.state === "failed" && j.kind === "plan") html = `<span class="bad">The plan failed: see the log.</span>`;
+  else if (r) {
+    html = `<div class="card"><b class="${r.fails ? "bad" : "good"}">${(100 * r.printable_mm / r.total_mm).toFixed(0)}% printable</b> (${r.printable_mm.toFixed(0)} of ${r.total_mm.toFixed(0)} mm; ${r.fails} of ${r.points} points without a safe pose)` +
+      (c ? `<br>Arm check: IK refused ${c.ik_refused}, clashes ${c.clashes}, trajectory errors ${c.traj_errors}, worst joint difference ${c.worst_dq}° <b class="${clear ? "good" : "bad"}">${clear ? "all clear" : "problems"}</b>` : "<br><span class='muted'>Not checked on the arm.</span>") +
+      (same ? "" : `<br><span class="warn">This result is for an earlier placement (scale ${r.params.scale}, x ${r.params.x}, y ${r.params.y}, turn ${r.params.yaw}°), not what's on screen now.</span>`) +
       `<br><a href="${r.viewer}" target="_blank" rel="noopener">Open ${r.name} in the viewer</a></div>`;
-  } else if (j.state === "failed") $("jobOut").innerHTML = `<span class="bad">The plan failed: see the log.</span>`;
-  if (running) setTimeout(pollJob, 1500);
+  }
+  $("jobOut").innerHTML = html;
+  // air-run: only a plan that matches the screen and passed the arm check
+  const ready = !!(j.on_arm && r && clear && same);
+  $("runBox").hidden = !j.on_arm;
+  $("airrun").disabled = running || !ready;
+  $("park").disabled = running;
+  $("stopArm").hidden = !moving; armMoving = moving;
+  if (moving) $("confirmBox").hidden = true;
+  $("runNote").textContent =
+    moving ? (j.kind === "park" ? "Parking at Home…" : j.log.some(l => l.includes("MOVING THE ARM")) ? "The arm is moving." : "Asking the arm whether it can run this (no motion yet)…") :
+    j.kind === "airrun" && j.state === "failed" ? "The air-run didn't finish: see the log." :
+    j.kind === "airrun" && j.state === "done" ? "Air-run finished; the arm is back at Home." :
+    j.kind === "park" && j.state === "failed" ? "Parking didn't finish: see the log." :
+    j.kind === "park" && j.state === "done" ? "Parked at Home." :
+    ready ? `Ready to air-run ${r.name}. The arm has to start at Home.` :
+    "Plan and check this placement on the arm first; the air-run follows that checked plan.";
 }
+function ask(html, action) { $("confirmText").innerHTML = html; $("confirmBox").hidden = false; pendingAction = action; }
+$("confirmCancel").onclick = () => { $("confirmBox").hidden = true; pendingAction = null; };
+$("confirmGo").onclick = () => { $("confirmBox").hidden = true; const a = pendingAction; pendingAction = null; if (a) a(); };
+async function postJob(url, b) {
+  const r = await fetch(url, { method: "POST", body: JSON.stringify(b) }), d = await r.json();
+  pollJob(); if (!r.ok) setTimeout(() => { $("runNote").textContent = d.error; }, 300);
+}
+$("airrun").onclick = () => {
+  const r = lastJob && lastJob.result, mm = parseFloat($("raise_mm").value);
+  if (!(mm >= 0 && mm <= 100)) { $("runNote").textContent = "Raise has to be 0 to 100 mm."; return; }
+  ask(`<b>The arm will move.</b> From Home to above the start of ${r.name}, along the path ${mm} mm above the planned height, ` +
+      `then straight up and back to Home. Nothing is extruded. Stand at the arm with the e-stop in reach: a Stop button shows here while it runs.`,
+      () => postJob("/api/airrun", { name: r.name, raise_mm: mm }));
+};
+$("park").onclick = () => ask(`<b>The arm will move</b> to Home by a joint move, from wherever it is now. Check nothing is in its way.`,
+                              () => postJob("/api/park", {}));
+$("stopArm").onclick = stopNow;
 
 // ------------------------------------------------------------------ start
 (async function () {
@@ -441,6 +524,7 @@ async function pollJob() {
     sweep = d.sweep; $("sweepInfo").textContent = sweep ? `(${sweep[0]}° to ${sweep[1]}°)` : `(${d.state})`;
     $("use_sweep").disabled = !sweep; render();
   });
+  fetch("/api/armref").then(r => r.json()).then(d => { armRef = d.points; draw(); });
   await Promise.all([loadShape(), loadReach()]);
   frameObject(); scheduleQuick(true); pollJob();
 })();
