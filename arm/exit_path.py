@@ -70,14 +70,21 @@ def plan_exit(q_now, W, table, upto=None, home=HOME, back_m=BACK_M, light=False)
     def fail(why):
         return dict(ok=False, reason=why, chain=chain, home=list(home))
 
-    # 1. back out along the nozzle
+    # 1. back out along the nozzle (a light leaves nothing to pull clear of: no backing out). Near the edge of
+    # the arm's reach it may not get the whole way: 20 mm is enough to clear the fresh strand.
     q = q_now
+    if light:
+        back_m = 0.0
     for s in np.arange(STEP_M, back_m + 1e-9, STEP_M):
         T = np.eye(4); T[:3, :3] = R0; T[:3, 3] = p0 - z * s
-        q, ok = plan.ik(T, q, 120)
+        qn, ok = plan.ik(T, q, 120)
         if not ok:
+            if s - STEP_M >= 0.02 - 1e-9:
+                break
             return fail("the arm can't back out along the nozzle past %.0f mm" % ((s - STEP_M) * 1000))
-        chain.append(q)
+        q = qn; chain.append(q)
+    if not chain:
+        chain.append(np.asarray(q_now, float))
     # 2. rise straight up above the print, then 3. a joint move to Home. From low down the joint move can
     # swing the hot end through the table or the print, so if it isn't clear, rise further and look again.
     backed = list(chain)

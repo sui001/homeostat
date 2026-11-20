@@ -422,8 +422,8 @@ class H(BaseHTTPRequestHandler):
                     if not (0 <= raise_mm <= 100):
                         return self.send(400, {"error": "raise must be 0-100 mm"})
                     fast = float(body.get("fast", 1))
-                    if not (1 <= fast <= 4):
-                        return self.send(400, {"error": "speed must be 1-4 x"})
+                    if not (1 <= fast <= 8):
+                        return self.send(400, {"error": "speed must be 1-8 x"})
                     light_pin, hold_s = int(body.get("light_pin", 0)), float(body.get("hold_s", 5))
                     if not (0 <= light_pin <= 4 and 0 <= hold_s <= 60):
                         return self.send(400, {"error": "light pin must be 0-4 and the shutter pause 0-60 s"})

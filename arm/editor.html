@@ -108,7 +108,7 @@
     <div class="row" style="align-items:flex-end">
       <label id="raiseBox" style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
       <label style="width:130px">Speed<select id="fast" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
-        <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option></select></label>
+        <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option><option value="6" class="lightOnly">6× faster</option><option value="8" class="lightOnly">8× faster</option></select></label>
       <label id="lightOpts1" hidden style="width:150px">Light switched on<select id="light_pin" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
         <option value="0">not switched (always on)</option><option value="1">wrist pin 1</option><option value="2">wrist pin 2</option><option value="3">wrist pin 3</option><option value="4">wrist pin 4</option></select></label>
       <label id="lightOpts2" hidden style="width:120px">Shutter pause (s)<input type="number" id="hold_s" value="5" min="0" max="60" step="1"></label>
@@ -633,6 +633,7 @@ function renderJob(j) {
   $("lightOpts1").hidden = $("lightOpts2").hidden = !lightPlan;
   $("raiseBox").hidden = lightPlan;            // a light drawing runs where it was planned
   $("airrun").textContent = lightPlan ? "Draw with light…" : "Air-run…";
+  document.querySelectorAll(".lightOnly").forEach(o => { o.hidden = !lightPlan; if (!lightPlan && o.selected) $("fast").value = "4"; });
   shutterCue(j, moving);
   $("airrun").disabled = running || !ready;
   $("park").disabled = running;

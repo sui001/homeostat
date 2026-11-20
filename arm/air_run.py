@@ -26,7 +26,7 @@ import os, sys, json, math, time, threading
 import numpy as np
 sys.path.insert(0, os.path.expanduser("~/kinova"))
 import kenv; kenv.load()
-import armlock, waypoint, gen3, exit_path, armmove, plan
+import armlock, waypoint, gen3, exit_path, armmove, armstream, plan
 from armmove import joint_list, smooth_times
 from kortex_api.TCPTransport import TCPTransport
 from kortex_api.RouterClient import RouterClient
@@ -55,7 +55,8 @@ HOLD = float(os.environ.get("AIR_LIGHT_HOLD_S", 5)) if LIGHT else 0.0
 if not 0 <= LIGHT_PIN <= 4:
     sys.exit("AIR_LIGHT_PIN must be 0 (no light wired) or a wrist pin, 1 to 4.")
 wps = [w for w in d["waypoints"] if w["ok"]]
-if FAST > 1:   # faster runs: fewer, longer steps (every FAST-th point) rather than the same steps squeezed
+STREAM = LIGHT and os.environ.get("AIR_STREAM", "1") != "0"   # light drawings: one continuous streamed motion
+if FAST > 1 and not STREAM:   # faster runs: fewer, longer steps (every FAST-th point) rather than the same steps squeezed
     step = int(round(FAST))
     wps = [wps[i] for i in sorted(set(range(0, len(wps), step)) | {len(wps) - 1})]
 if not all(w["ok"] for w in d["waypoints"]):
@@ -224,9 +225,23 @@ try:
                 label = "down onto the start" if c == 0 else "drawing, part %d of %d" % (c, len(cuts) - 2)
             moves.append(("%s%s (%d joint waypoints)" % (label, "" if FAST == 1 else " at %gx" % FAST, i1 - i0), (i0, i1)))
         est = approach + sum(path_times) + 2 * HOLD
+        if STREAM:   # the way down onto the start as a list, then the drawing streamed in one go
+            moves = moves[:2]
+            sp, got = armstream.plan_stream(chain[k0:], seglen[k0:], SPEED,
+                                            float(os.environ.get("AIR_STREAM_JV", 30)), float(os.environ.get("AIR_STREAM_ACC", 25)))
+            vmx, amx = sp.stats()
+            L_draw = sum(seglen[k0:])
+            print("streamed drawing: %.0f mm in %.0f s, tip at up to %.0f mm/s%s; joints at most %.1f deg/s, %.0f deg/s^2"
+                  % (L_draw * 1000, sp.T, got * 1000,
+                     "" if got >= SPEED * 0.99 else " (asked for %.0f: the arm's joints can't take the curves faster)" % (SPEED * 1000),
+                     vmx, amx))
+            est = approach + sum(path_times[:k0]) + sp.T + 2 * HOLD
+            path_times = path_times[:k0] + [sp.T]
         if LIGHT:
             print("light drawing: the exposure (light on) lasts about %.0f s; light %s"
                   % (sum(path_times[k0:]), "on wrist pin %d" % LIGHT_PIN if LIGHT_PIN else "not switched (no pin set): it stays on"))
+            if STREAM:
+                print("         drawing, streamed in one go (%d joint poses)" % (len(chain) - k0))
     # validate before any motion
     bad = 0
     for name, wl in moves:
@@ -288,6 +303,24 @@ try:
             run(name, wl, 60 + 2 * sum(t))
             continue
         run(name, wl, 60 + 2 * est)
+    if STREAM:
+        shutter("OPEN")
+        light.on(); print("LIGHT ON", flush=True)
+        live.what = "drawing (streamed)"
+        last = [0.0]; nfb = [0]
+        live.paused = True
+        def tick(tt, T, fb):
+            nfb[0] += 1
+            if nfb[0] % 4 == 0:      # the live view at 10 Hz, from the stream's own readings
+                live.feed(fb)
+            if tt - last[0] >= 10:
+                last[0] = tt; print("    drawing: %.0f of %.0f s" % (tt, T), flush=True)
+                live.what = "drawing, %.0f%%" % (100 * tt / T)
+        try:
+            worst = armstream.run(base, cyc, sp, tick)
+        finally:
+            live.paused = False
+        print("  drawing done: joints kept within %.2f deg of the plan" % worst, flush=True)
     if LIGHT:
         light.off(); print("LIGHT OFF", flush=True)
         shutter("CLOSE")

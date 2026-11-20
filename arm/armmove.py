@@ -186,6 +186,7 @@ class Live:
     live.json (joints, tool, what it is doing) for the editor's live view."""
     def __init__(self, cyc, what="", **extra):
         self.cyc, self.what, self.extra, self.log = cyc, what, extra, []
+        self.paused = False            # while a stream drives the arm it reads the arm itself, and feeds us
         self._stop = threading.Event(); self._th = threading.Thread(target=self._loop, daemon=True)
 
     def start(self):
@@ -200,6 +201,8 @@ class Live:
     def _loop(self):
         k = 0
         while not self._stop.is_set():
+            if self.paused:
+                time.sleep(0.05); continue
             try:
                 fb = self.cyc.RefreshFeedback()
             except Exception:
@@ -214,6 +217,16 @@ class Live:
                     pass
             k += 1
             time.sleep(0.05)
+
+    def feed(self, fb):
+        """A feedback reading taken by someone else (the stream), for the log and the live view."""
+        now = time.time(); b = fb.base
+        self.log.append((now, b.tool_pose_x, b.tool_pose_y, b.tool_pose_z))
+        try:
+            self._write(dict(self.extra, active=True, t=now, what=self.what,
+                             joints=[a.position for a in fb.actuators], tool=[b.tool_pose_x, b.tool_pose_y, b.tool_pose_z]))
+        except OSError:
+            pass
 
     def stop(self):
         self._stop.set(); self._th.join(timeout=2)
