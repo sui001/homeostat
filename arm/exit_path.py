@@ -3,7 +3,8 @@
 From wherever the arm is (the end of a print, or wherever a Stop left it):
   1. back out along the nozzle, the way it came in (the one direction the planner knows is clear there),
   2. rise straight up to above the print's highest point plus a margin,
-  3. a joint move to Home.
+  3. a joint move to Home; if that isn't clear (from a stretched-out pose, folding the elbow swings the
+     tool down past the base), rise higher, or fold the shoulder and elbow to Home's angles first.
 Every pose on the way, joint moves sampled every 2 deg, gets the planner's own clearance tests (hot end
 and arm links against the strand printed so far, and the table). If any sample is too close, nothing is
 returned to run: the arm stays where it is, to be moved by hand.
@@ -77,27 +78,57 @@ def plan_exit(q_now, W, table, upto=None, home=HOME, back_m=BACK_M, light=False)
         if not ok:
             return fail("the arm can't back out along the nozzle past %.0f mm" % ((s - STEP_M) * 1000))
         chain.append(q)
-    # 2. rise straight up, as far as needed (or as far as the arm goes here)
-    p = gen3.fk(q, plan.TOOL)[:3, 3]
-    top = max(dense[:, 2].max() if len(dense) else table, p0[2]) + RISE_MARGIN
-    for zz in np.arange(p[2] + 0.01, top + 1e-9, 0.01):
-        T = np.eye(4); T[:3, :3] = R0; T[:3, 3] = [p[0], p[1], zz]
-        qn, ok = plan.ik(T, q, 120)
-        if not ok:
+    # 2. rise straight up above the print, then 3. a joint move to Home. From low down the joint move can
+    # swing the hot end through the table or the print, so if it isn't clear, rise further and look again.
+    backed = list(chain)
+    top0 = max(dense[:, 2].max() if len(dense) else table, p0[2]) + RISE_MARGIN
+    best = None
+    for extra in (0.0, 0.05, 0.10, 0.15, 0.20, 0.30):
+        chain = list(backed); q = chain[-1]
+        p = gen3.fk(q, plan.TOOL)[:3, 3]
+        for zz in np.arange(p[2] + 0.01, top0 + extra + 1e-9, 0.01):
+            T = np.eye(4); T[:3, :3] = R0; T[:3, 3] = [p[0], p[1], zz]
+            qn, ok = plan.ik(T, q, 120)
+            if not ok:
+                break
+            q = qn; chain.append(q)
+        rise_to = gen3.fk(q, plan.TOOL)[2, 3]
+        # check every pose on the way up
+        worst, what = 1.0, ""
+        prev = q_now
+        for qk in chain:
+            for qs in joint_samples(prev, qk):
+                c, w = clearance(qs, dense, back, table)
+                if c < worst:
+                    worst, what = c, w
+            prev = qk
+        # then Home: a straight joint move, or through a pose that folds the shoulder and elbow first
+        # (straight from a stretched-out pose, folding the elbow swings the tool down past the base)
+        H, top = np.asarray(home, float), np.asarray(prev, float)
+        routes = [[], [np.r_[top[0], H[1], H[2], top[3:]]], [np.r_[top[:2], H[2], top[3:]]], [np.r_[H[0], top[1:]]]]
+        leg_best = None
+        for via in routes:
+            lw, lwhat, a = 1.0, "", top
+            for b in via + [H]:
+                for qs in joint_samples(a, b):
+                    c, w = clearance(qs, dense, back, table)
+                    if c < lw:
+                        lw, lwhat = c, w
+                a = b
+            if leg_best is None or lw > leg_best[0]:
+                leg_best = (lw, lwhat, via)
+            if lw >= 0:
+                break
+        lw, lwhat, via = leg_best
+        if lw < worst:
+            worst, what = lw, lwhat
+        res = dict(ok=worst >= 0, chain=[list(map(float, c)) for c in chain], via=[list(map(float, v)) for v in via],
+                   home=list(home), worst_mm=round(worst * 1000, 1), what=what, rise_to=round(float(rise_to), 3))
+        if best is None or worst > best["worst_mm"] / 1000:
+            best = res
+        if worst >= 0 or rise_to < top0 + extra - 0.005:     # clear, or the arm can't rise any further here
             break
-        q = qn; chain.append(q)
-    rise_to = gen3.fk(q, plan.TOOL)[2, 3]
-    # check every pose on the way, and the joint move to Home
-    worst, what = 1.0, ""
-    prev = q_now
-    for qk in chain + [np.asarray(home, float)]:
-        for qs in joint_samples(prev, qk):
-            c, w = clearance(qs, dense, back, table)
-            if c < worst:
-                worst, what = c, w
-        prev = qk
-    res = dict(ok=worst >= 0, chain=[list(map(float, c)) for c in chain], home=list(home), worst_mm=round(worst * 1000, 1),
-               what=what, rise_to=round(float(rise_to), 3))
-    if worst < 0:
-        res["reason"] = "the %s would come within %.0f mm of the print (or the table) on the way out" % (what, -worst * 1000)
+    res = best if not res["ok"] else res
+    if not res["ok"]:
+        res["reason"] = "the %s would come within %.0f mm of the print (or the table) on the way out" % (res["what"], -res["worst_mm"])
     return res

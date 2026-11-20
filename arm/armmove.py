@@ -105,6 +105,9 @@ def run_exit(base, cyc, ex, label="safe exit"):
         if p:
             raise SystemExit("REFUSED the %s: %s. The arm has not moved." % (label, "; ".join(p[:2])))
         run(base, "%s: back out and rise" % label, wl, 60 + 2 * sum(t))
+    for k, v in enumerate(ex.get("via", [])):      # fold the shoulder and elbow first, when that's the clear way
+        cur = [a.position for a in cyc.RefreshFeedback().actuators]
+        run(base, "%s: fold the arm" % label, waypoint.build(cur, v, 20.0, "via%d" % k), 90)
     cur = [a.position for a in cyc.RefreshFeedback().actuators]
     run(base, "%s: to Home" % label, waypoint.build(cur, ex["home"], 20.0, "home"), 90)
 
