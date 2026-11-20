@@ -97,6 +97,10 @@
     <button id="plan" class="primary">Plan</button>
     <button id="planCheck">Plan and check on the arm</button>
   </div>
+  <div id="planBar" hidden style="margin-top:8px">
+    <div style="height:12px;background:#e4e2dc;border-radius:6px;overflow:hidden"><div id="planBarFill" style="height:100%;width:0;background:#3b6fd6;transition:width .6s"></div></div>
+    <div id="planBarText" class="muted" style="font-size:12px;margin-top:3px"></div>
+  </div>
   <div id="jobOut" style="margin-top:6px"></div>
   <div id="runBox" class="card" hidden style="margin-top:8px">
     <b>Air-run on the arm</b> <span class="muted">moves the arm along the checked plan, raised; nothing is extruded</span>
@@ -576,6 +580,19 @@ async function pollJob() {
   renderJob(j);
   if (j.state === "running") setTimeout(pollJob, j.kind === "plan" ? 1500 : 800);
 }
+// where a plan has got to, from its log: finding clear directions ~60%, solving the joints ~30%, the arm check the rest
+function planProgress(log) {
+  let frac = 0.02, what = "Starting";
+  const passes = log.filter(l => l.includes("smoothing the directions")).length;
+  for (const l of log) {
+    let m;
+    if ((m = l.match(/finding clear directions: point (\d+) of (\d+)/))) { frac = 0.6 * m[1] / m[2]; what = `Step 1 of 3: finding clear directions, point ${m[1]} of ${m[2]}`; }
+    else if (l.includes("smoothing the directions")) { frac = 0.6; what = `Step 2 of 3: solving the arm's joints${passes > 1 ? ", pass " + passes : ""}`; }
+    else if ((m = l.match(/solving the arm's joints: point (\d+) of (\d+)/))) { frac = 0.6 + 0.3 * m[1] / m[2]; what = `Step 2 of 3: solving the arm's joints${passes > 1 ? " (pass " + passes + ")" : ""}, point ${m[1]} of ${m[2]}`; }
+    else if (l.includes("checking on the arm")) { frac = 0.92; what = "Step 3 of 3: checking on the arm (no motion)"; }
+  }
+  return { frac, what };
+}
 function renderJob(j) {
   lastJob = j; if (!j) return;
   const running = j.state === "running", moving = running && j.kind !== "plan";
@@ -595,6 +612,9 @@ function renderJob(j) {
       `<br><a href="${r.viewer}" target="_blank" rel="noopener">Open ${r.name} in the viewer</a></div>`;
   }
   $("jobOut").innerHTML = html;
+  const planning = running && j.kind === "plan";
+  $("planBar").hidden = !planning;
+  if (planning) { const p = planProgress(j.log); $("planBarFill").style.width = (100 * p.frac).toFixed(1) + "%"; $("planBarText").textContent = `${Math.round(100 * p.frac)}% · ${p.what}`; }
   // air-run: only a plan that matches the screen and passed the arm check
   const ready = !!(j.on_arm && r && clear && same);
   $("runBox").hidden = !j.on_arm;
@@ -641,6 +661,7 @@ $("stopArm").onclick = stopNow;
   });
   fetch("/api/armref").then(r => r.json()).then(d => { armRef = d.points; draw(); });
   pollLive();
+  window.name = "homeostat-editor";      // Send to the arm in the simulator opens paths in this tab
   const want = new URLSearchParams(location.search).get("import");       // "Place it in the layout editor" from the simulator
   if (want) history.replaceState(null, "", location.pathname);
   await loadSources(want || undefined);

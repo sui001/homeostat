@@ -294,6 +294,8 @@ def plan(args):
         q = np.array(args.start_joints, float); x_hint = gen3.from_euler(*DOWN_EULER)[:, 0]
         out, bad = [], None
         for i in range(end):
+            if args.progress and i % 100 == 0:
+                print("solving the arm's joints: point %d of %d" % (i, end), flush=True)
             z = D[path[i]]; tip = W[i]; m = S <= s[i] + 1e-9
             ok = False; why = []
             for roll in ROLLS:          # the hot end is round, so roll is free: take the one the wrist likes

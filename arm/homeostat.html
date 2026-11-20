@@ -512,12 +512,16 @@ $("exArm").onclick = async () => {
   const d = buildArm(), st = $("status");
   if (d.points.length < 20) { st.textContent = "Let it run a little first: there's hardly any path yet."; return; }
   if (!served) { await offer(stamp() + "_arm.json", JSON.stringify(d), "application/json"); st.textContent += " Load it in the layout editor with Load a file."; return; }
+  const tab = window.open("", "homeostat-editor");      // the print page: the same tab each time
+  st.textContent = "Sending…";
   try {
     const r = await fetch("/api/import", { method: "POST", body: JSON.stringify(d) }), res = await r.json();
     if (!r.ok) throw new Error(res.error || r.status);
-    st.innerHTML = `Sent ${d.points.length} points (t 0 to ${d.t_end.toFixed(1)} s, view xw ${d.view.xw.toFixed(2)}) as ${res.name}. ` +
-                   `<a href="/?import=${encodeURIComponent(res.name)}" target="_blank" rel="noopener">Place it in the layout editor</a>.`;
-  } catch (e) { st.textContent = "Couldn't send it: " + (e && e.message ? e.message : e) + "."; }
+    const url = "/?import=" + encodeURIComponent(res.name);
+    st.innerHTML = `Sent ${d.points.length} points (t 0 to ${d.t_end.toFixed(1)} s) as ${res.name}, and opened it on the print page. ` +
+                   `<a href="${url}" target="homeostat-editor">Open it again</a>.`;
+    if (tab) { tab.location.href = url; tab.focus(); } else location.href = url;   // pop-ups blocked: go there in this tab
+  } catch (e) { if (tab) tab.close(); st.textContent = "Couldn't send it: " + (e && e.message ? e.message : e) + "."; }
 };
 
 $("preset").value = 0; $("seed").value = PRESETS[0].seed;
