@@ -450,8 +450,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, table_state())
             if u.path == "/api/table/save":
                 z = float(body.get("z"))
-                if not 0.0 <= z <= 0.6:
-                    return self.send(400, {"error": "table height must be 0-0.6 m"})
+                if not -0.3 <= z <= 0.6:          # the table can be below the arm's base mount
+                    return self.send(400, {"error": "table height must be -0.3 to 0.6 m in the arm's frame"})
                 json.dump(dict(z=round(z, 4), touches=len(_touches), when=time.strftime("%Y-%m-%d %H:%M")), open(TABLE, "w"))
                 return self.send(200, table_state())
             p = nums(body)

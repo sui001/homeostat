@@ -31,6 +31,10 @@ W, table, LIGHT = np.zeros((0, 3)), 0.16, False
 if PLAN:
     d = json.load(open(PLAN))
     W, table, LIGHT = np.array(d["strand"]) + [0, 0, RAISE], d["params"]["table"], bool(d["params"].get("light"))
+MEASURED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plans", "table.json")
+if os.path.exists(MEASURED):     # where the table really is (the editor's table homing), over what the plan assumed
+    table = json.load(open(MEASURED))["z"]
+    print("table at z %.4f m (measured)" % table)
 
 t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
 info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]

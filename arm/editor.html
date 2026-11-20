@@ -534,7 +534,8 @@ $("tCap").onclick = async () => {
 $("tClear").onclick = async () => showTable(await (await fetch("/api/table/clear", { method: "POST", body: "{}" })).json());
 $("tUse").onclick = async () => {
   const z = +tableNow.mean.toFixed(4);
-  const d = await (await fetch("/api/table/save", { method: "POST", body: JSON.stringify({ z }) })).json();
+  const r = await fetch("/api/table/save", { method: "POST", body: JSON.stringify({ z }) }), d = await r.json();
+  if (!r.ok) { $("tOut").innerHTML += `<br><span class="bad">Not saved: ${d.error}</span>`; return; }
   showTable(d); P.table = z; changed({ reach: true });
 };
 fetch("/api/table").then(r => r.json()).then(t => {
