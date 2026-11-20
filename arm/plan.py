@@ -15,7 +15,7 @@ previous point so the joints move smoothly. Needs numpy only, so it also runs on
 
 The hot end is a guess until the real one is measured: see HOTEND below.
 """
-import argparse, json, math, sys
+import argparse, json, math, os, sys
 import numpy as np
 import gen3, wrist
 from homeostat_path import load_path
@@ -277,6 +277,11 @@ def plan(args):
     # the strand so far (and the post the anchor sits on), or nothing at all when drawing with light
     dense, S = strand_samples(W, args.table, args.light)
     D = fib_dirs(max_up=1.0) if args.light else fib_dirs()   # a light may point any way, up included
+    if args.light:
+        # A light drawing should flow: its tip slows to a crawl wherever the joints must swing a lot for a little
+        # path, which happens near the wrist singularity (J5 near 0) and where the light turns sharply.
+        global J5_MIN, STEP_DEG
+        J5_MIN = float(os.environ.get("LIGHT_J5_MIN", 25.0)); STEP_DEG = float(os.environ.get("LIGHT_STEP_DEG", 6.0))
     # 1. every clear direction at every point
     C = np.zeros((len(W), len(D)))
     for i, tip in enumerate(W):
@@ -297,18 +302,28 @@ def plan(args):
               % (np.median(free), free.min(), blocked[:1].tolist(), len(W)), file=sys.stderr)
     # 2. smooth direction sequence, 3. IK along it; ban what fails and go again
     banned = np.zeros_like(C, bool); start = np.array([0, 0, -1.0])
+    # Light drawings: the direction grid is ~5 deg apart, and each 5 deg turn of the light swings the wrist
+    # (40 cm back from the tip) 3-4 cm in one 2 mm step: the elbow lurches and the tip crawls. So the chosen
+    # directions are smoothed along the path (window in points), narrower each time a smoothed pose fails.
+    win = int(os.environ.get("LIGHT_SMOOTH", 41)) if args.light else 0
     for attempt in range(40):
         if args.progress:
             print("smoothing the directions and solving the arm's joints, pass %d" % (attempt + 1), flush=True)
         path, reached = choose_dirs(D, C[:end], banned[:end], start)
         if path is None:
             end = reached; continue        # nothing smooth gets past `reached`: print stops there
+        Zs = D[np.array(path[:end])]
+        if win >= 3:
+            k = np.ones(win) / win; pad = win // 2
+            Zp = np.r_[np.repeat(Zs[:1], pad, 0), Zs, np.repeat(Zs[-1:], pad, 0)]
+            Zs = np.c_[[np.convolve(Zp[:, c], k, "valid") for c in range(3)]].T
+            Zs /= np.linalg.norm(Zs, axis=1)[:, None]
         q = np.array(args.start_joints, float); x_hint = gen3.from_euler(*DOWN_EULER)[:, 0]
         out, bad = [], None
         for i in range(end):
             if args.progress and i % 100 == 0:
                 print("solving the arm's joints: point %d of %d" % (i, end), flush=True)
-            z = D[path[i]]; tip = W[i]; m = S <= s[i] + 1e-9
+            z = Zs[i]; tip = W[i]; m = S <= s[i] + 1e-9
             ok = False; why = []
             for roll in ROLLS:          # the hot end is round, so roll is free: take the one the wrist likes
                 ca, sa = math.cos(math.radians(roll)), math.sin(math.radians(roll))
@@ -321,6 +336,8 @@ def plan(args):
                 if i and jump > MAX_JUMP: why.append("jump %.0f r%d" % (jump, roll)); continue
                 ac = arm_clearance(gen3.frames(qn), dense[m], args.table)
                 if min(ac) < 0: why.append("%s %.0fmm r%d" % (ARM[int(np.argmin(ac))][0], min(ac) * 1000, roll)); continue
+                if win >= 3 and min(tool_clearance(R, tip, dense[m], s[i] - S[m], args.table)) < 0:
+                    why.append("table r%d" % roll); continue      # a smoothed direction, not one the grid checked
                 ok = True; break
             if not ok:
                 bad = i; break
@@ -335,6 +352,11 @@ def plan(args):
                             hotend_mm=[round(v * 1000, 1) for v in tc], arm_mm=[round(v * 1000, 1) for v in ac]))
         if bad is None:
             break
+        if win >= 3:              # a smoothed pose failed: smooth less, and try again before banning anything
+            win = win // 2 if win // 2 >= 3 else 0
+            if args.verbose:
+                print("attempt %d: smoothed pose at point %d failed (%s); smoothing over %d points" % (attempt, bad, "; ".join(why[:2]), win), file=sys.stderr)
+            continue
         if args.verbose:
             print("attempt %d: point %d (tilt %.0f): %s" % (attempt, bad, math.degrees(math.acos(-D[path[bad]][2])), "; ".join(why[:4])), file=sys.stderr)
         near = np.degrees(np.arccos(np.clip(D @ D[path[bad]], -1, 1))) < 6
