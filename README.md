@@ -44,6 +44,13 @@ The light is switched on one of the wrist's four digital pins (GPIO 1-4 on the b
 connector, 3.3 V): drive the light through a small logic-level MOSFET or transistor, not from the pin
 directly. With no pin chosen the light stays on throughout, approach and exit included.
 
+### Attractors
+
+The **Attractor** row under Path makes a classic 3-D strange attractor (Lorenz, Rössler, Thomas,
+Aizawa, Halvorsen, Chen) and makes it the path, standing upright, with Light drawing on: **Run it for**
+is the system's own time (longer = more loops, longer drawing), **Seed** nudges the start for a
+different trajectory. At scale S it is about 2 S mm across. `attractors.py` does the maths.
+
 ## The scripts
 
 | File | What it does |
@@ -59,6 +66,8 @@ directly. With no pin chosen the light stays on throughout, approach and exit in
 | `make_viewer.py`, `viewer_template.html` | One-page 3-D viewer for a plan |
 | `gen3.py`, `wrist.py` | Arm kinematics (calibrated against the arm) and quick wrist estimates |
 | `homeostat_path.py` | The homeostat model, ported from the page, and its 3-D path |
+| `attractors.py` | Lorenz, Rössler, Thomas, Aizawa, Halvorsen and Chen attractors as paths |
+| `armstream.py` | Light drawings as one continuous motion: joint speeds streamed to the arm |
 
 ## Numbers to keep in mind
 

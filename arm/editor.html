@@ -48,6 +48,13 @@
     <button type="button" id="loadFile">Load a file…</button><input type="file" id="fileIn" accept=".json,application/json" hidden>
     <span id="sourceInfo" class="muted" style="font-size:12px;align-self:center"></span>
   </div>
+  <div class="row" style="margin:0 0 8px;align-items:flex-end">
+    <label style="width:150px">Attractor<select id="attKind" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
+    <label style="width:110px">Run it for<input type="number" id="attDur" min="0.1" step="1"></label>
+    <label style="width:70px">Seed<input type="number" id="attSeed" value="0" min="0" step="1"></label>
+    <button type="button" id="attMake">Make it</button>
+  </div>
+  <div id="attAbout" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>
   <div class="grid">
     <label>Start at t (s) · 0 = whole run<input type="number" id="from_t" step="0.5" min="0"></label>
     <label>Run length (s)<input type="number" id="seconds" step="1" min="1"></label>
@@ -249,7 +256,7 @@ function draw() {
   };
   // shadow on the table
   g.globalAlpha = 0.18; for (let i = 1; i < W.length; i++) line([W[i - 1][0], W[i - 1][1], tz], [W[i][0], W[i][1], tz], "#1d1e20", 2); g.globalAlpha = 1;
-  if (W[0][2] > tz + 0.001) line([W[0][0], W[0][1], tz], W[0], "#8f8e89", 9);           // post
+  if (!P.light && W[0][2] > tz + 0.001) line([W[0][0], W[0][1], tz], W[0], "#8f8e89", 9);   // post (prints only)
   for (let i = 1; i < W.length; i++) line(W[i - 1], W[i], st(i), 3.2);
   const a0 = proj(W[0]); g.fillStyle = "#1d1e20"; g.beginPath(); g.arc(a0[0], a0[1], 7, 0, 7); g.fill();
   if (fresh && quick.stop < W.length) { const q = proj(W[quick.stop]); g.strokeStyle = "#c0392b"; g.lineWidth = 3; g.beginPath(); g.arc(q[0], q[1], 12, 0, 7); g.stroke(); }
@@ -284,7 +291,8 @@ function stats() {
   const rows = [["Size", `${hi.map((h, k) => ((h - lo[k]) * 1000).toFixed(0)).join(" × ")} mm (x × y × z)`],
     ["Strand", `${(len * 1000).toFixed(0)} mm, ${W.length} points`],
     ["Inside reach", `<span class="${inside === W.length ? "good" : "bad"}">${inside} of ${W.length} points</span>`],
-    ["Anchor", W[0][2] > P.table + 0.001 ? `on a ${((W[0][2] - P.table) * 1000).toFixed(0)} mm post` : "on the table"]];
+    P.light ? ["Lowest point", `${((Math.min(...W.map(w => w[2])) - P.table) * 1000).toFixed(0)} mm above the table (light: nothing to stand on)`]
+            : ["Anchor", W[0][2] > P.table + 0.001 ? `on a ${((W[0][2] - P.table) * 1000).toFixed(0)} mm post` : "on the table"]];
   const fresh = quick && quickKey === key();
   if (checking) rows.push(["Printable", `<span class="muted">checking…</span>`]);
   else if (fresh) {
@@ -337,7 +345,7 @@ async function runQuick() {
 function changed(opts = {}) {
   localStorage.setItem("homeostat-layout", JSON.stringify(P));
   if (lastJob) renderJob(lastJob);
-  syncFields(); render();
+  syncFields(); render(); sourceUi();
   if (opts.shape) setTimeout(loadShape, 250);
   if (opts.reach) loadReach();
   if (!opts.live) scheduleQuick();
@@ -477,20 +485,42 @@ async function loadSources(select) {
   if (select) P.source = select;
   if (P.source && !IMPORTS.some(i => i.name === P.source)) P.source = "";
   $("source").innerHTML = `<option value="">Built-in model, preset ${P.preset}</option>` +
-    IMPORTS.map(i => `<option value="${i.name}">Simulator: ${i.preset || "seed " + i.seed}, t 0–${(+i.t_end).toFixed(0)} s, sent ${i.received}</option>`).join("");
+    IMPORTS.map(i => i.attractor
+      ? `<option value="${i.name}">Attractor: ${i.preset}, run for ${(+i.t_end).toFixed(1)}${i.seed ? ", seed " + i.seed : ""}, made ${i.received}</option>`
+      : `<option value="${i.name}">Simulator: ${i.preset || "seed " + i.seed}, t 0–${(+i.t_end).toFixed(0)} s, sent ${i.received}</option>`).join("");
   $("source").value = P.source || "";
   sourceUi();
 }
 function sourceUi() {
   const imp = IMPORTS.find(i => i.name === P.source);
   $("preset").disabled = $("seconds").disabled = !!imp;
-  $("sourceInfo").textContent = imp ? `${imp.points} points, made at ${imp.mm_per_90} mm per 90°, 4-D view xw ${(+imp.view.xw || 0).toFixed(2)} yw ${(+imp.view.yw || 0).toFixed(2)}` : "";
+  $("sourceInfo").textContent = !imp ? "" : imp.attractor
+    ? `${imp.points} points; about ${(2 * P.scale / 1000).toFixed(2)} m across at this scale`
+    : `${imp.points} points, made at ${imp.mm_per_90} mm per 90°, 4-D view xw ${(+imp.view.xw || 0).toFixed(2)} yw ${(+imp.view.yw || 0).toFixed(2)}`;
 }
 $("source").onchange = () => {
   P.source = $("source").value;
   const imp = IMPORTS.find(i => i.name === P.source);
   if (imp && P.from_t >= imp.t_end) P.from_t = 0;          // otherwise nothing would be left
   sourceUi(); changed({ shape: true });
+};
+let ATT = [];
+fetch("/api/attractors").then(r => r.json()).then(a => {
+  ATT = a; $("attKind").innerHTML = a.map(x => `<option value="${x.kind}">${x.label}</option>`).join("");
+  const pick = () => { const x = ATT.find(y => y.kind === $("attKind").value); $("attDur").value = x.duration; $("attAbout").textContent = x.about; };
+  $("attKind").onchange = pick; pick();
+});
+$("attMake").onclick = async () => {
+  $("attAbout").textContent = "Working it out…";
+  try {
+    const r = await fetch("/api/attractor", { method: "POST", body: JSON.stringify({ kind: $("attKind").value, duration: +$("attDur").value, seed: +$("attSeed").value }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error);
+    P.from_t = 0;                                   // the whole of it
+    if (!P.light) { P.light = true; $("light").checked = true; }   // an attractor crosses itself: light only
+    await loadSources(d.name);
+    $("attAbout").textContent = ATT.find(y => y.kind === $("attKind").value).about + ". Made: it's now the path.";
+    changed({ shape: true, reach: true });
+  } catch (e) { $("attAbout").textContent = "Couldn't make it: " + e.message; }
 };
 $("loadFile").onclick = () => $("fileIn").click();
 $("fileIn").onchange = async () => {

@@ -18,7 +18,7 @@ The hot end is a guess until the real one is measured: see HOTEND below.
 import argparse, json, math, os, sys
 import numpy as np
 import gen3, wrist
-from homeostat_path import load_path
+from homeostat_path import load_path, is_upright
 
 # ---------------------------------------------------------------- geometry (metres)
 # Tool frame = the nozzle tip: flange + gen3.NOZZLE along the flange z. The arm itself is still set to a
@@ -139,10 +139,13 @@ def rot_xy(roll, pitch):
     Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]]); Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
     return Ry @ Rx
 
-def place_base(P_mm):
+def place_base(P_mm, upright=False):
     """Page axes -> world (x right, page y up -> world z up, page z -> world -y), rotated so the first
-    (outermost) point is the lowest, then centred in x/y with its lowest point at z = 0."""
+    (outermost) point is the lowest (unless upright: attractors stand as they are), then centred in x/y
+    with its lowest point at z = 0."""
     W = np.c_[P_mm[:, 0], -P_mm[:, 2], P_mm[:, 1]] / 1000.0
+    if upright:
+        return W - [W[:, 0].mean(), W[:, 1].mean(), W[:, 2].min()]
     c = W.mean(0); u = W[0] - c; u /= np.linalg.norm(u); d = np.array([0, 0, -1.0])
     v = np.cross(u, d); s = np.linalg.norm(v); cth = u @ d
     if s > 1e-9:
@@ -166,10 +169,10 @@ def needs_post(W, table_z):
     """The anchor (first point) has to stand on something: a post when it is above the table."""
     return W[0][2] > table_z + 1e-3
 
-def place(P_mm, centre, table_z, lift, yaw=0.0, roll=0.0, pitch=0.0):
+def place(P_mm, centre, table_z, lift, yaw=0.0, roll=0.0, pitch=0.0, upright=False):
     """Page axes -> world (x right, page y up -> world z up, page z -> world -y),
     rotated so the first (outermost) point is the lowest, i.e. the anchor on the table."""
-    return place_from_base(place_base(P_mm), centre, table_z, lift, yaw, roll, pitch)
+    return place_from_base(place_base(P_mm, upright), centre, table_z, lift, yaw, roll, pitch)
 
 # ---------------------------------------------------------------- look-ahead planning
 def fib_dirs(n=1600, max_up=0.26):
@@ -270,7 +273,7 @@ def plan(args):
         keep = T >= args.from_t; P_mm, T = P_mm[keep], T[keep]
         if len(P_mm) < 2:
             raise SystemExit("Nothing in the path after t = %g s." % args.from_t)
-    W = place(P_mm, (args.x, args.y), args.table, args.lift, args.yaw, args.roll, args.pitch)
+    W = place(P_mm, (args.x, args.y), args.table, args.lift, args.yaw, args.roll, args.pitch, is_upright(args.path_file))
     if args.trim > 0:
         W = W[: max(2, len(W) - int(round(args.trim / args.step)))]
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]

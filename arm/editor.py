@@ -19,7 +19,7 @@ import json, math, os, re, signal, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
-import gen3, plan, editor_core as ec
+import gen3, plan, editor_core as ec, attractors
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLANS = os.path.join(HERE, "plans")
@@ -141,7 +141,7 @@ def source_file(name):
     """A simulator path by name ("" = the built-in model). Only names this server made."""
     if not name:
         return None
-    if not re.fullmatch(r"sim-[0-9-]+", name) or not os.path.exists(os.path.join(IMPORTS, name + ".json")):
+    if not re.fullmatch(r"(sim|att)-[0-9-]+", name) or not os.path.exists(os.path.join(IMPORTS, name + ".json")):
         raise ValueError("no simulator path called %r" % name)
     return os.path.join(IMPORTS, name + ".json")
 
@@ -165,14 +165,30 @@ def save_import(d):
     return name
 
 
+def make_attractor(body):
+    kind = str(body.get("kind", ""))
+    if kind not in attractors.ATTRACTORS:
+        raise ValueError("no attractor called %r" % kind)
+    dur = float(body.get("duration") or attractors.ATTRACTORS[kind][6])
+    if not 0 < dur <= 20 * attractors.ATTRACTORS[kind][6]:
+        raise ValueError("run it for 0 to %g" % (20 * attractors.ATTRACTORS[kind][6]))
+    d = attractors.export(kind, dur, None, int(body.get("seed", 0)))
+    d["received"] = time.strftime("%Y-%m-%d %H:%M")
+    os.makedirs(IMPORTS, exist_ok=True)
+    name = time.strftime("att-%Y%m%d-%H%M%S")
+    json.dump(d, open(os.path.join(IMPORTS, name + ".json"), "w"))
+    return name
+
+
 def list_imports():
     out = []
     if os.path.isdir(IMPORTS):
         for f in sorted(os.listdir(IMPORTS), reverse=True):
-            if re.fullmatch(r"sim-[0-9-]+\.json", f):
+            if re.fullmatch(r"(sim|att)-[0-9-]+\.json", f):
                 d = json.load(open(os.path.join(IMPORTS, f)))
                 out.append(dict(name=f[:-5], seed=d.get("seed"), preset=d.get("preset"), t_end=d.get("t_end"),
-                                view=d.get("view"), mm_per_90=d.get("mm_per_90"), points=len(d["points"]), received=d.get("received")))
+                                view=d.get("view"), mm_per_90=d.get("mm_per_90"), points=len(d["points"]), received=d.get("received"),
+                                attractor=d.get("attractor"), params=d.get("params")))
     return out
 
 
@@ -370,6 +386,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, open(os.path.join(HERE, "editor.html"), "rb").read(), "text/html; charset=utf-8")
             if u.path in ("/sim", "/sim/"):
                 return self.send(200, open(os.path.join(HERE, "homeostat.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path == "/api/attractors":
+                return self.send(200, [dict(kind=k, label=a[0], duration=a[6], about=a[7]) for k, a in attractors.ATTRACTORS.items()])
             if u.path == "/api/imports":
                 return self.send(200, list_imports())
             if u.path == "/api/shape":
@@ -436,6 +454,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "something is already running"})
             if u.path == "/api/import":
                 return self.send(200, {"name": save_import(body)})
+            if u.path == "/api/attractor":
+                return self.send(200, {"name": make_attractor(body)})
             if u.path == "/api/table/capture":       # reads the arm only: you put the tip there by hand
                 if not ON_ARM:
                     return self.send(400, {"error": "measuring the table works from the editor on armster"})

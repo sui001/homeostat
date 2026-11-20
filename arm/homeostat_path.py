@@ -75,6 +75,14 @@ def path_from_export(d, mm_per_90, step_mm=2.0):
     return np.c_[[np.interp(S, s, P[:, k]) for k in range(3)]].T, np.interp(S, s, A[:, 0])
 
 
+def is_upright(path_file):
+    """Paths that stand as they are (attractors), rather than turned so their first point is lowest."""
+    if not path_file:
+        return False
+    import json
+    return bool(json.load(open(path_file)).get("upright"))
+
+
 def load_path(path_file, preset, seconds, mm_per_90, step_mm=2.0):
     """The planner's path: from a simulator export when path_file is given, else from the built-in model."""
     if path_file:

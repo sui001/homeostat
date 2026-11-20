@@ -10,7 +10,7 @@ quick_check(...)   per point of a placed path: can some direction reach it past 
 import math
 import numpy as np
 import plan, wrist
-from homeostat_path import load_path
+from homeostat_path import load_path, is_upright
 
 DIRS = plan.fib_dirs(900)          # the sweep's direction set: down to ~15 deg above horizontal
 DIRS_LIGHT = plan.fib_dirs(900, max_up=1.0)   # a light may point any way, up included
@@ -60,7 +60,7 @@ def base_shape(preset, seconds, scale, from_t, step=2.0, path_file=None):
         keep = T >= from_t; P_mm, T = P_mm[keep], T[keep]
     if len(P_mm) < 2:
         raise ValueError("nothing in the path after t = %g s" % from_t)
-    return plan.place_base(P_mm), T
+    return plan.place_base(P_mm, is_upright(path_file)), T
 
 
 def in_sweep(p, sweep):
