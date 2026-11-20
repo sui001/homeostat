@@ -1,19 +1,20 @@
 /*
  * PROJECT: Distributed Homeostat -- Room Installation
- * DEVICE:  Sensor Node (motion input)
+ * DEVICE:  Sensor Node (PIR motion input)
  * 
- * This node watches the room. When it detects motion, it broadcasts
- * a knock event to all four equation nodes via ESP-NOW. The knock
- * carries a random strength value -- a disturbance from the environment
- * entering the system, as Ashby intended: perturbation from outside
- * the viable range, demanding adaptation.
+ * Watches the room. Motion detected = perturbation broadcast to all
+ * equation nodes via ESP-NOW. Node 1 absorbs it; propagates through
+ * coupling to the other three units.
+ * 
+ * This node is the environment. Not part of the simulation.
+ * Ashby's hand pushing the needle.
  * 
  * CONFIGURATION:
- *   DEVICE_ID: 0 (sensor node -- do not change)
- *   PIR_PIN: GPIO connected to PIR signal out
+ *   DEVICE_ID: 0 -- DO NOT CHANGE
+ *   PIR_PIN:   GPIO 2 -- PIR signal out
  * 
  * WIRING:
- *   GPIO 2  -> PIR sensor signal out
+ *   GPIO 2  -> PIR signal out
  *   PIR VCC -> 3.3V or 5V (check your module)
  *   PIR GND -> GND
  */
@@ -23,42 +24,40 @@
 
 // ---- Config ----------------------------------------------------------------
 
-const int    DEVICE_ID            = 0;
+const int    DEVICE_ID            = 0;  // DO NOT CHANGE
 const int    PIR_PIN              = 2;
 
-const float  KNOCK_STRENGTH_MIN   = 2.0f;
-const float  KNOCK_STRENGTH_MAX   = 5.0f;
+const float  PERTURB_MIN          = 5.0f;
+const float  PERTURB_MAX          = 10.0f;
 
-const unsigned long KNOCK_COOLDOWN_MS = 1500;  // min ms between knocks
-const unsigned long BOOT_DELAY_MS    = 500;    // stagger boot
+const unsigned long PERTURB_COOLDOWN_MS = 1500;
+const unsigned long BOOT_DELAY_MS       = 0;
 
-// Broadcast address -- reaches all ESP-NOW peers on the network
+// Broadcast address
 uint8_t broadcastAddress[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 // ---- Message types ---------------------------------------------------------
 
-typedef struct {
-  uint8_t  msg_type;      // 1 = knock
-  uint8_t  source_id;     // always 0 for sensor node
-  float    strength;      // knock magnitude
+typedef struct __attribute__((packed)) {
+  uint8_t  msg_type;    // 1 = perturbation
+  uint8_t  source_id;   // 0 = sensor node
+  float    strength;
 } KnockMessage;
 
 // ---- State -----------------------------------------------------------------
 
-unsigned long lastKnockTime = 0;
+unsigned long lastPerturbTime = 0;
 bool pirLastState = LOW;
 
 // ---- ESP-NOW callbacks -----------------------------------------------------
 
-void onSent(const uint8_t *mac, esp_now_send_status_t status) {
-  // silent -- we don't need confirmation for broadcast knocks
+void onSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
+  // silent
 }
 
 // ---- Setup -----------------------------------------------------------------
 
 void setup() {
-  delay(BOOT_DELAY_MS * DEVICE_ID);  // stagger boot (sensor = 0, instant)
-
   Serial.begin(115200);
   Serial.println("[sensor] Homeostat sensor node booting...");
 
@@ -67,6 +66,9 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
+  Serial.print("MAC: ");
+  Serial.println(WiFi.macAddress());
+
   if (esp_now_init() != ESP_OK) {
     Serial.println("[sensor] ESP-NOW init failed. Halting.");
     while (true) delay(1000);
@@ -74,7 +76,6 @@ void setup() {
 
   esp_now_register_send_cb(onSent);
 
-  // Register broadcast peer
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, broadcastAddress, 6);
   peerInfo.channel = 0;
@@ -90,23 +91,29 @@ void loop() {
   bool pirState = digitalRead(PIR_PIN);
   unsigned long now = millis();
 
-  // Rising edge on PIR = motion detected
+  // Rising edge = motion detected
   if (pirState == HIGH && pirLastState == LOW) {
-    if (now - lastKnockTime > KNOCK_COOLDOWN_MS) {
-      broadcastKnock();
-      lastKnockTime = now;
+    if (now - lastPerturbTime > PERTURB_COOLDOWN_MS) {
+      broadcastPerturbation();
+      lastPerturbTime = now;
     }
+  }
+
+  // Debug: print PIR state changes
+  if (pirState != pirLastState) {
+    Serial.print("[pir] ");
+    Serial.println(pirState == HIGH ? "HIGH -- motion detected" : "LOW -- clear");
   }
 
   pirLastState = pirState;
   delay(20);
 }
 
-// ---- Knock -----------------------------------------------------------------
+// ---- Perturbation ----------------------------------------------------------
 
-void broadcastKnock() {
-  float strength = KNOCK_STRENGTH_MIN +
-    (float)random(1000) / 1000.0f * (KNOCK_STRENGTH_MAX - KNOCK_STRENGTH_MIN);
+void broadcastPerturbation() {
+  float strength = PERTURB_MIN +
+    (float)random(1000) / 1000.0f * (PERTURB_MAX - PERTURB_MIN);
 
   KnockMessage msg;
   msg.msg_type  = 1;
@@ -115,7 +122,7 @@ void broadcastKnock() {
 
   esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
 
-  Serial.print("[sensor] Knock broadcast -- strength: ");
+  Serial.print("[sensor] Perturbation broadcast -- strength: ");
   Serial.println(strength);
 }
 
@@ -123,6 +130,6 @@ void broadcastKnock() {
  * FLASH INSTRUCTIONS:
  *   Board:    ESP32S3 Dev Module (or ESP32-S3 Supermini)
  *   USB Mode: Hardware CDC and JTAG
- *   This file only -- sensor node does not need FastLED
- *   No DEVICE_ID change needed (always 0)
+ *   No FastLED needed
+ *   DEVICE_ID always 0 -- never change
  */

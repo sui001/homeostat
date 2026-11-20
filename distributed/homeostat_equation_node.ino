@@ -2,28 +2,26 @@
  * PROJECT: Distributed Homeostat -- Room Installation
  * DEVICE:  Equation Node (one per corner, x[DEVICE_ID - 1])
  * 
- * This node is one unit of Ashby's homeostat, physically placed in
- * a corner of the room. It owns one state variable x[i] and one row
- * of the coupling matrix k[i][*]. It listens for the other three
- * nodes' x values via ESP-NOW, computes its own dx/dt, updates x[i],
- * and broadcasts its new value back into the room.
+ * One unit of Ashby's homeostat. Owns one state variable x[i] and one
+ * row of the coupling matrix k[i][*]. Receives peer x values via ESP-NOW,
+ * computes dx/dt, updates x[i], broadcasts back into the room.
  * 
- * When |x[i]| exceeds BOUND, this node's S2 fires: it randomises its
- * own k row and resets x[i] to zero -- hunting for viability
- * independently. The room finds equilibrium, or it doesn't.
+ * When |x[i]| exceeds BOUND, this node's S2 fires: randomises its k row
+ * and lets the system recover through its new dynamics -- no reset to zero.
+ * The system heals by changing the relations among its parts, not by
+ * erasing the disturbance. (Ashby / T. Zafiropulos)
  * 
- * A knock from the sensor node hits x[0] only (node 1). The
- * disturbance propagates through coupling -- the room responds.
+ * THREE VISIBLE EVENTS:
+ *   Yellow flash  = perturbation received
+ *   Red/Blue      = system stress (x moving away from zero)
+ *   White flash   = S2 reorganisation event
  * 
  * CONFIGURATION:
- *   DEVICE_ID: Set to 1, 2, 3, or 4 before flashing each node.
- *              Node 1 = corner 1 = x[0], etc.
+ *   *** ONLY CHANGE DEVICE_ID BETWEEN FLASHES ***
  * 
  * WIRING:
  *   GPIO 4  -> WS2812 LED strip data
- *   GPIO 9  -> Button (other side to GND, internal pullup)
- *   LED strip VCC -> external 5V
- *   LED strip GND -> GND (shared with ESP32)
+ *   GPIO 0  -> Boot button (perturbation input)
  */
 
 #include <esp_now.h>
@@ -32,118 +30,113 @@
 
 // ---- Identity -- CHANGE PER DEVICE ----------------------------------------
 
-const int DEVICE_ID = 1;  // 1, 2, 3, or 4
+const int DEVICE_ID = 1;  // *** CHANGE THIS: 1, 2, 3, or 4 ***
 
 // ---- Config ----------------------------------------------------------------
 
 const int   NUM_NODES             = 4;
-const int   NODE_INDEX            = DEVICE_ID - 1;  // 0-based index into x[]
+const int   NODE_INDEX            = DEVICE_ID - 1;  // DO NOT CHANGE
 
-const int   LED_PIN               = 48;
-const int   NUM_LEDS              = 1;
-const int   BUTTON_PIN            = 0;
+const int   LED_PIN               = 4;   // DO NOT CHANGE
+const int   NUM_LEDS              = 16;  // DO NOT CHANGE
+const int   BUTTON_PIN            = 0;   // DO NOT CHANGE
 
 const float BOUND                 = 1.0f;
 const float DT                    = 0.06f;
-const float K_MAX                 = 0.35f;
-const float DIAGONAL_DAMPING      = 0.08f;
-const float KNOCK_STRENGTH_MIN    = 2.0f;
-const float KNOCK_STRENGTH_MAX    = 5.0f;
-const float DISPLAY_SCALE         = 0.3f;
+const float K_MAX                 = 0.5f;
+const float DIAGONAL_DAMPING      = 0.08f;  // max self-damping; actual is randomised per reconfig
+const float PERTURB_MIN           = 5.0f;
+const float PERTURB_MAX           = 10.0f;
+const float DISPLAY_SCALE         = 1.0f;
 
 const unsigned long BUTTON_DEBOUNCE_MS       = 400;
 const unsigned long MIN_RECONFIG_INTERVAL_MS = 200;
-const unsigned long KNOCK_FLASH_MS           = 250;
-const unsigned long PEER_TIMEOUT_MS          = 500;   // treat peer as stale after this
-const unsigned long BOOT_DELAY_MS            = 600;   // stagger: node 1=600ms, 2=1200ms etc.
+const unsigned long PERTURB_FLASH_MS         = 250;
+const unsigned long RECONFIG_FLASH_MS        = 300;
+const unsigned long BOOT_DELAY_MS            = 600;
 
 // Broadcast address
 uint8_t broadcastAddress[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 // ---- Message types ---------------------------------------------------------
 
-// State broadcast: each node sends its current x value
-typedef struct {
+typedef struct __attribute__((packed)) {
   uint8_t  msg_type;    // 2 = state update
   uint8_t  source_id;   // 1-4
-  float    x_value;     // current x[source_id - 1]
+  float    x_value;
 } StateMessage;
 
-// Knock from sensor node
-typedef struct {
-  uint8_t  msg_type;    // 1 = knock
-  uint8_t  source_id;   // 0 = sensor
+typedef struct __attribute__((packed)) {
+  uint8_t  msg_type;    // 1 = perturbation
+  uint8_t  source_id;   // 0 = sensor node
   float    strength;
 } KnockMessage;
 
 // ---- Simulation state ------------------------------------------------------
 
-float x[NUM_NODES]          = {0};   // all four x values (own + received from peers)
-float k[NUM_NODES]          = {0};   // this node's row of the coupling matrix
-unsigned long lastReceived[NUM_NODES] = {0};  // timestamp of last update per peer
-
-float x_own = 0.0f;  // canonical local value (also stored in x[NODE_INDEX])
+float x[NUM_NODES]            = {0};
+float k[NUM_NODES]            = {0};
+float x_own                   = 0.0f;
 
 unsigned long lastReconfig     = 0;
 unsigned long lastButtonPress  = 0;
-unsigned long knockFlashUntil  = 0;
+unsigned long perturbFlashUntil = 0;
+unsigned long reconfigFlashUntil = 0;
 
-bool inKnockFlash = false;
+bool inPerturbFlash  = false;
+bool inReconfigFlash = false;
 
-// ---- LED state -------------------------------------------------------------
+// ---- LED -------------------------------------------------------------------
 
 CRGB leds[NUM_LEDS];
 
 // ---- ESP-NOW callbacks -----------------------------------------------------
 
-void onReceive(const uint8_t *mac, const uint8_t *data, int len) {
+void onReceive(const esp_now_recv_info *info, const uint8_t *data, int len) {
   if (len < 1) return;
   uint8_t msg_type = data[0];
 
   if (msg_type == 1 && len == sizeof(KnockMessage)) {
-    // Knock from sensor node -- only node 1 (x[0]) absorbs it
     if (NODE_INDEX == 0) {
       KnockMessage *msg = (KnockMessage *)data;
       x_own += msg->strength;
       x[NODE_INDEX] = x_own;
-      triggerKnockFlash();
-      Serial.print("[node] Knock received, strength: ");
+      triggerPerturbFlash();
+      Serial.print("[node] Perturbation received: ");
       Serial.println(msg->strength);
     }
-
   } else if (msg_type == 2 && len == sizeof(StateMessage)) {
     StateMessage *msg = (StateMessage *)data;
     int idx = msg->source_id - 1;
     if (idx >= 0 && idx < NUM_NODES && idx != NODE_INDEX) {
       x[idx] = msg->x_value;
-      lastReceived[idx] = millis();
     }
   }
 }
 
-void onSent(const uint8_t *mac, esp_now_send_status_t status) {
+void onSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
   // silent
 }
 
 // ---- S2: uniselector -------------------------------------------------------
 
-// This node's S2 -- fires when x_own leaves the viable range.
-// Randomises this node's k row and resets x_own.
-// Each corner of the room makes this decision for itself.
+// Randomises k row with variable diagonal damping -- each organisation
+// genuinely different. System recovers through new dynamics, not reset.
 void fireUniselector() {
   unsigned long now = millis();
   if (now - lastReconfig < MIN_RECONFIG_INTERVAL_MS) return;
 
-  Serial.println("[S2] Out of viable range -- reconfiguring k row");
+  Serial.println("[S2] Reorganising");
 
   for (int j = 0; j < NUM_NODES; j++) {
-    k[j] = ((float)random(2000) / 1000.0f - 1.0f) * K_MAX;
+    k[j] = randomFloat(-K_MAX, K_MAX);
   }
-  k[NODE_INDEX] = -DIAGONAL_DAMPING;  // self-damping preserved
+  // Diagonal: randomised within damping range -- no two organisations identical
+  k[NODE_INDEX] = randomFloat(-DIAGONAL_DAMPING, -DIAGONAL_DAMPING * 0.1f);
 
-  x_own = 0.0f;
-  x[NODE_INDEX] = 0.0f;
+  // NO x_own reset -- system recovers through its new dynamics
   lastReconfig = now;
+  triggerReconfigFlash();
 
   Serial.print("[S2] New k: ");
   for (int j = 0; j < NUM_NODES; j++) {
@@ -152,25 +145,25 @@ void fireUniselector() {
   Serial.println();
 }
 
-// ---- Button (local perturbation, optional) ---------------------------------
+// ---- Button ----------------------------------------------------------------
 
 void checkButton() {
   if (digitalRead(BUTTON_PIN) == LOW) {
     unsigned long now = millis();
     if (now - lastButtonPress > BUTTON_DEBOUNCE_MS) {
-      float strength = KNOCK_STRENGTH_MIN +
-        (float)random(1000) / 1000.0f * (KNOCK_STRENGTH_MAX - KNOCK_STRENGTH_MIN);
+      float strength = randomFloat(PERTURB_MIN, PERTURB_MAX);
       x_own += strength;
       x[NODE_INDEX] = x_own;
-      triggerKnockFlash();
+      triggerPerturbFlash();
+      broadcastState();  // immediate broadcast before S2 can fire
       lastButtonPress = now;
-      Serial.print("[node] Local button knock: ");
+      Serial.print("[node] Perturbation: ");
       Serial.println(strength);
     }
   }
 }
 
-// ---- Integration step ------------------------------------------------------
+// ---- Integration -----------------------------------------------------------
 
 void stepSimulation() {
   float dx = 0.0f;
@@ -178,14 +171,14 @@ void stepSimulation() {
     dx += k[j] * x[j];
   }
   x_own += dx * DT;
+  // Clamp to prevent runaway divergence
+  x_own = constrain(x_own, -BOUND * 3.0f, BOUND * 3.0f);
   x[NODE_INDEX] = x_own;
 
-  if (abs(x_own) > BOUND) {
-    fireUniselector();
-  }
+  if (abs(x_own) > BOUND) fireUniselector();
 }
 
-// ---- Broadcast own state ---------------------------------------------------
+// ---- Broadcast -------------------------------------------------------------
 
 void broadcastState() {
   StateMessage msg;
@@ -195,47 +188,60 @@ void broadcastState() {
   esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
 }
 
-// ---- LED rendering ---------------------------------------------------------
+// ---- LED -------------------------------------------------------------------
 
-void triggerKnockFlash() {
-  knockFlashUntil = millis() + KNOCK_FLASH_MS;
-  inKnockFlash = true;
+void triggerPerturbFlash() {
+  perturbFlashUntil = millis() + PERTURB_FLASH_MS;
+  inPerturbFlash = true;
+}
+
+void triggerReconfigFlash() {
+  reconfigFlashUntil = millis() + RECONFIG_FLASH_MS;
+  inReconfigFlash = true;
 }
 
 void renderState() {
-  if (inKnockFlash && millis() < knockFlashUntil) {
-    fill_solid(leds, NUM_LEDS, CRGB(255, 200, 0));  // yellow flash
+  unsigned long now = millis();
+
+  // Perturbation: yellow
+  if (inPerturbFlash && now < perturbFlashUntil) {
+    fill_solid(leds, NUM_LEDS, CHSV(48, 255, 255));
     FastLED.show();
     return;
   }
-  inKnockFlash = false;
+  inPerturbFlash = false;
 
-  float mag = abs(x_own) * DISPLAY_SCALE;
-  int litCount = NUM_LEDS - (int)(mag * NUM_LEDS);
-  litCount = constrain(litCount, 0, NUM_LEDS);
-
-  CRGB colour;
-  if (x_own >= 0) {
-    colour = CRGB(200, 0, 0);    // red: positive
-  } else {
-    colour = CRGB(0, 0, 200);    // blue: negative
+  // Reorganisation: white
+  if (inReconfigFlash && now < reconfigFlashUntil) {
+    fill_solid(leds, NUM_LEDS, CRGB::White);
+    FastLED.show();
+    return;
   }
+  inReconfigFlash = false;
+
+  // Normal: green fading to red/blue
+  float magnitude = constrain(fabsf(x_own) * DISPLAY_SCALE, 0.0f, 1.0f);
+  int litCount = NUM_LEDS - (int)(magnitude * (NUM_LEDS - 1));
+  litCount = constrain(litCount, 1, NUM_LEDS);
+
+  // Dead zone: green if near zero
+  uint8_t hue = (x_own > 0.08f)  ? 0   // red: positive
+              : (x_own < -0.08f) ? 160  // blue: negative
+              : 96;                      // green: near zero
 
   for (int i = 0; i < NUM_LEDS; i++) {
     if (i < litCount) {
-      leds[i] = CRGB(0, 180, 0); // green: near equilibrium
+      leds[i] = CHSV(hue, 220, 200);
     } else {
-      leds[i] = colour;           // red/blue: displaced
+      leds[i] = CRGB::Black;
     }
   }
-
   FastLED.show();
 }
 
-// ---- Serial plotter output -------------------------------------------------
+// ---- Plotter ---------------------------------------------------------------
 
 void printPlotter() {
-  // All four x values on one line -- readable in Arduino serial plotter
   for (int i = 0; i < NUM_NODES; i++) {
     Serial.print(x[i]);
     if (i < NUM_NODES - 1) Serial.print("\t");
@@ -243,17 +249,23 @@ void printPlotter() {
   Serial.println();
 }
 
+// ---- Helpers ---------------------------------------------------------------
+
+float randomFloat(float low, float high) {
+  return low + (high - low) * ((float)random(0, 10001) / 10000.0f);
+}
+
 // ---- Setup -----------------------------------------------------------------
 
 void initK() {
   for (int j = 0; j < NUM_NODES; j++) {
-    k[j] = ((float)random(2000) / 1000.0f - 1.0f) * K_MAX;
+    k[j] = randomFloat(-K_MAX, K_MAX);
   }
-  k[NODE_INDEX] = -DIAGONAL_DAMPING;  // own diagonal: always damping
+  k[NODE_INDEX] = randomFloat(-DIAGONAL_DAMPING, -DIAGONAL_DAMPING * 0.1f);
 }
 
 void setup() {
-  delay(BOOT_DELAY_MS * DEVICE_ID);  // stagger boot across nodes
+  delay(BOOT_DELAY_MS * DEVICE_ID);
 
   Serial.begin(115200);
   Serial.print("[node] Homeostat node ");
@@ -261,7 +273,6 @@ void setup() {
   Serial.println(" booting...");
 
   randomSeed(esp_random());
-
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
@@ -271,6 +282,9 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+
+  Serial.print("MAC: ");
+  Serial.println(WiFi.macAddress());
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("[node] ESP-NOW init failed. Halting.");
@@ -293,7 +307,7 @@ void setup() {
   Serial.println("] ready. Listening to the room.");
 }
 
-// ---- Main loop -------------------------------------------------------------
+// ---- Loop ------------------------------------------------------------------
 
 void loop() {
   checkButton();
@@ -301,21 +315,18 @@ void loop() {
   broadcastState();
   renderState();
   printPlotter();
-
-  delay(60);  // approx DT pacing
+  delay(60);
 }
 
 /*
  * FLASH INSTRUCTIONS:
- *   Board:    ESP32S3 Dev Module (or ESP32-S3 Supermini)
+ *   Board:    ESP32S3 Dev Module
  *   USB Mode: Hardware CDC and JTAG
- *   Libraries: FastLED (via Library Manager)
+ *   Libraries: FastLED
  * 
- *   Before flashing each node, change DEVICE_ID:
- *     Corner 1 (x[0]) -> DEVICE_ID = 1  (receives knock from sensor)
- *     Corner 2 (x[1]) -> DEVICE_ID = 2
- *     Corner 3 (x[2]) -> DEVICE_ID = 3
- *     Corner 4 (x[3]) -> DEVICE_ID = 4
- * 
- *   Flash sensor node separately with homeostat_sensor_node.ino
+ *   Change DEVICE_ID only:
+ *     Corner 1 -> DEVICE_ID = 1  (receives sensor perturbation)
+ *     Corner 2 -> DEVICE_ID = 2
+ *     Corner 3 -> DEVICE_ID = 3
+ *     Corner 4 -> DEVICE_ID = 4
  */
