@@ -15,10 +15,11 @@ python arm/editor.py        # or run it on a laptop: http://localhost:8792 (arm 
 
 Place, turn, tilt and scale the path inside the arm's reach, like a slicer's build plate: drag the
 path to move it, the orange ring turns it, the red and teal rings tilt it, the corner squares scale it,
-and dragging empty space turns the view. The green dome is where the nozzle can get to at all. The
+Shift-dragging the path raises or lowers it, and dragging empty space turns the view. The green dome is where the nozzle can get to at all. The
 path is coloured as you go: printable, blocked by strand already printed, out of reach, or outside the
 painting rig's working sweep. The quick check is optimistic; **Plan** runs the real planner, and
-**Plan and check on the arm** also runs the no-motion arm check. Results land in `arm/plans/` (on
+**Plan and check on the arm** also runs the no-motion arm check, which
+asks the arm's own IK about every 10th point (and around any big joint step); `ARM_CHECK_EVERY=1` checks them all. Results land in `arm/plans/` (on
 armster: `~/homeostat-arm/arm/plans`, not in git) with a viewer page each.
 
 ### Air-run, Park and the live arm
@@ -34,7 +35,7 @@ live from its joint angles.
 ### Light drawing
 
 Tick **Light drawing** to plan a path for a light carried by the arm, photographed in one long
-exposure. Nothing is left behind, so the planner only keeps to the arm's reach, its joint limits and the
+exposure. **Raise off the table** (or Shift-drag) lifts the drawing into the air; nothing holds it up. Nothing is left behind, so the planner only keeps to the arm's reach, its joint limits and the
 table: paths can cross themselves and planning takes seconds instead of minutes. The run (**Draw with
 light…**) goes down onto the start dark, waits while you open the shutter (three high beeps and a
 countdown on the page), switches the light on along the path only, off at the end, waits while you close

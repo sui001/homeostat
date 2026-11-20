@@ -4,11 +4,16 @@
 Only ever calls ComputeInverseKinematics, ComputeForwardKinematics, ValidateWaypointList and
 reads feedback. There is no Execute / Reach / Send call anywhere in this file.
 
-For every planned point it
+For a sample of the planned points (every EVERY-th, the first and last, and anywhere the planned joints
+move more than JUMP_DEG from one point to the next) it
   1. asks the arm's own IK for the pose (seeded with the planned joints),
   2. re-runs the hot end + arm-link clearance check on the arm's joint solution,
   3. then validates the whole thing as Cartesian waypoint trajectories, in chunks,
      at the speed the print would run.
+
+Each IK question is a round trip to the arm's controller (~20 ms), so asking about all of a 40,000-point
+light drawing took 15 minutes (2026-11-20). The planned joints change smoothly between points 2 mm apart,
+so a sample finds the same trouble; ARM_CHECK_EVERY=1 checks every point.
 
     ~/kinova-py310/bin/python arm_sim.py plan.json [speed_mm_s]
 Writes plan_checked.json next to the plan.
@@ -28,6 +33,8 @@ import gen3, plan
 PLAN = sys.argv[1] if len(sys.argv) > 1 else "plan.json"
 SPEED = float(sys.argv[2]) / 1000 if len(sys.argv) > 2 else 0.010   # m/s along the strand
 CHUNK = 40
+EVERY = max(1, int(os.environ.get("ARM_CHECK_EVERY", "10")))
+JUMP_DEG = 2.0
 
 d = json.load(open(PLAN))
 if d["params"].get("long_nozzle"): plan.HOTEND[:] = plan.HOTEND_LONG
@@ -57,9 +64,18 @@ try:
 
     ik_bad, clash, worst_dq, worst_tip, fk_used = [], [], 0.0, 0.0, []
     worst_hot, worst_arm = 1e9, 1e9
-    for w in wps:
-        if not w["ok"]:
-            continue
+    good = [w for w in wps if w["ok"]]
+    pick = base_pick = set(range(0, len(good), EVERY)) | {len(good) - 1}
+    for k in range(1, len(good)):
+        dj = np.abs(((np.array(good[k]["joints"]) - np.array(good[k - 1]["joints"]) + 180) % 360) - 180).max()
+        if dj > JUMP_DEG:
+            pick = pick | {k - 1, k}
+    sample = [good[k] for k in sorted(pick)] if good else []
+    print("checking %d of %d points (every %d, plus the ends and %d around big joint steps)"
+          % (len(sample), len(good), EVERY, len(pick - base_pick)), flush=True)
+    for n, w in enumerate(sample):
+        if n and n % 500 == 0:
+            print("  point %d of %d" % (n, len(sample)), flush=True)
         ikd = Base_pb2.IKData()
         p = ikd.cartesian_pose; p.x, p.y, p.z = w.get("tcp", w["tip"]); p.theta_x, p.theta_y, p.theta_z = w["euler"]
         for q in w["joints"]:
@@ -88,8 +104,8 @@ try:
         if min(hc) < -1e-4 or min(ac) < -1e-4:   # 0.1 mm: pose angles are stored to 0.001 deg
             clash.append((w["i"], plan.HOTEND[int(np.argmin(hc))][0] if min(hc) < 0 else plan.ARM[int(np.argmin(ac))][0],
                           round(min(hc) * 1000, 1), round(min(ac) * 1000, 1)))
-    ok = [w for w in wps if w["ok"] and w.get("arm_ik") is not None]
-    print("IK: %d/%d points solved by the arm; %d refused" % (len(ok), sum(w["ok"] for w in wps), len(ik_bad)))
+    ok = [w for w in sample if w.get("arm_ik") is not None]
+    print("IK: %d/%d checked points solved by the arm; %d refused" % (len(ok), len(sample), len(ik_bad)))
     if fk_used:
         print("    of those, %d the arm's IK gave up on: the planned joints are used, and the arm's own FK puts them on the pose" % len(fk_used))
     print("    arm's joints vs planned joints: worst %.2f deg; arm solution tip vs plan %.1f mm (model error)" % (worst_dq, worst_tip * 1000))
@@ -119,7 +135,8 @@ try:
     print("ValidateWaypointList (Cartesian, %.0f mm/s): %d chunks, %d errors" % (SPEED * 1000, math.ceil(len(ok) / (CHUNK - 1)), len(traj_err)))
     for e in traj_err[:12]: print("   ", e)
     d["arm_check"] = dict(fk_confirmed=fk_used, ik_refused=ik_bad, clashes=clash, traj_errors=traj_err, worst_dq=worst_dq,
-                          worst_hot_mm=worst_hot * 1000, worst_arm_mm=worst_arm * 1000)
+                          worst_hot_mm=worst_hot * 1000, worst_arm_mm=worst_arm * 1000,
+                          checked_points=len(sample), every=EVERY)
     json.dump(d, open(PLAN.replace(".json", "_checked.json"), "w"))
 finally:
     sm.CloseSession(); r.SetActivationStatus(False); _lock.release()
