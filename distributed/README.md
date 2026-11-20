@@ -12,7 +12,9 @@ The room finds equilibrium, or it doesn't.
 
 | File | Description |
 |---|---|
-| `homeostat_equation_node.ino` | Flash to each corner node. Change `DEVICE_ID` (1-4) only. |
+| `homeostat_equation_node_v1_2/` | **Current.** Dappled, breathing display (ported from the Glade node). Set `DEVICE_ID` (1-4) and `LEDS_PER_PIXEL` per box: 1 for a 16-LED strip, 2 for a 32-LED strip in 16 pairs. |
+| `homeostat_equation_node_v1_1/` | Dappled display, 16 LEDs only. Superseded by v1.2. |
+| `homeostat_equation_node.ino` | Original steady display, 16 LEDs. Flash to each corner node. Change `DEVICE_ID` (1-4) only. |
 | `homeostat_sensor_node.ino` | Flash to the sensor node. Never change `DEVICE_ID` (always 0). |
 | `homeostat_distributed_context.md` | Full technical context - wiring, parameters, known issues, conceptual notes. |
 
