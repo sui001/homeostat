@@ -134,7 +134,12 @@ try:
             qm, conv = plan.ik(Tt, np.asarray(seed, float), 200)
             if conv:
                 qm = np.array([waypoint.wrap(v) for v in qm])
-                ok_fk, mm, deg = gen3.arm_fk_check(base, qm, tcp_of(pt, e), e)
+                ok_fk = False
+                for attempt in range(3):     # the arm's FK request itself fails now and then (2026-11-20): ask again
+                    try:
+                        ok_fk, mm, deg = gen3.arm_fk_check(base, qm, tcp_of(pt, e), e); break
+                    except Exception:
+                        time.sleep(0.2)
                 if ok_fk:
                     model_ik[0] += 1
                     return qm
@@ -154,7 +159,21 @@ try:
     # every pose along the way: above the start, then the path (the way out is the safe exit, below)
     P = [above] + list(tips); E = [eul[0]] + eul
     q = ik(P[0], E[0], wps[0]["joints"]); chain = [q]; seglen = []
-    for k in range(1, len(P)):
+    checked = [k for k, w in enumerate(wps) if w.get("arm_ik")]
+    if STREAM and len(checked) >= 2:
+        # A streamed light drawing runs the planned joints, corrected toward the arm's own IK: the arm check
+        # asked the arm about a sample of the points, and the difference (a degree or two, smooth along the
+        # path) is interpolated between them. Asking the arm about all 40,000 points one by one took 15 min.
+        idx = np.array(checked)
+        dq = np.array([((np.array(wps[k]["arm_ik"]) - np.array(wps[k]["joints"]) + 180) % 360) - 180 for k in checked])
+        J = np.array([w["joints"] for w in wps], float)
+        corr = np.c_[[np.interp(np.arange(len(wps)), idx, dq[:, j]) for j in range(6)]].T
+        chain += [np.array([waypoint.wrap(v) for v in qq]) for qq in J + corr]
+        seglen = [float(np.linalg.norm(P[1] - P[0]))] + list(np.linalg.norm(np.diff(tips, axis=0), axis=1))
+        k0 = 1
+        print("  joints from the plan, corrected by the arm's own IK at %d checked points (largest correction %.2f deg)"
+              % (len(checked), float(np.abs(dq).max())), flush=True)
+    for k in range(1, len(P) if not (STREAM and len(checked) >= 2) else 1):
         qk = ik(P[k], E[k], q); n = int(math.ceil(dstep(q, qk)[:5].max() / FINE))
         if n > 1:   # split the segment so no joint swings more than FINE deg between waypoints
             R0, R1 = gen3.from_euler(*E[k - 1]), gen3.from_euler(*E[k])
