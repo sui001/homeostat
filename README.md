@@ -35,7 +35,9 @@ live from its joint angles.
 ### Light drawing
 
 Tick **Light drawing** to plan a path for a light carried by the arm, photographed in one long
-exposure. **Raise off the table** (or Shift-drag) lifts the drawing into the air; nothing holds it up. Nothing is left behind, so the planner only keeps to the arm's reach, its joint limits and the
+exposure. **Raise off the table** (or Shift-drag) lifts the drawing into the air; nothing holds it up. The Speed menu shows how
+long the drawing takes at each speed (worked out from the plan's joints the way the run times it; a curvy
+path tops out below the speed asked for). Nothing is left behind, so the planner only keeps to the arm's reach, its joint limits and the
 table: paths can cross themselves and planning takes seconds instead of minutes. The run (**Draw with
 light…**) goes down onto the start dark, waits while you open the shutter (three high beeps and a
 countdown on the page), switches the light on along the path only, off at the end, waits while you close

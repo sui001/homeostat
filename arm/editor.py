@@ -19,7 +19,7 @@ import json, math, os, re, signal, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
-import gen3, plan, editor_core as ec, attractors
+import gen3, plan, editor_core as ec, attractors, armstream
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLANS = os.path.join(HERE, "plans")
@@ -135,6 +135,34 @@ def nums(d):
     if not 10 <= p.get("scale", 200) <= 4000:
         raise ValueError("scale must be 10-4000 mm per 90 deg")
     return p
+
+
+FASTS = (1, 2, 3, 4, 6, 8)
+_times_lock = threading.Lock()
+
+
+def run_times(name):
+    """How long a light drawing runs at each speed: the streamed drawing as air_run.py times it (from the
+    plan's joints; the run re-solves them, within a degree or so), plus getting there, the two shutter
+    pauses and the way home. Cached next to the plan."""
+    cache = os.path.join(PLANS, name + "_times.json")
+    if os.path.exists(cache):
+        return json.load(open(cache))
+    with _times_lock:
+        if os.path.exists(cache):
+            return json.load(open(cache))
+        f = os.path.join(PLANS, name + "_checked.json")
+        d = json.load(open(f if os.path.exists(f) else os.path.join(PLANS, name + ".json")))
+        wps = [w for w in d["waypoints"] if w["ok"]]
+        Q = np.array([w.get("arm_ik") or w["joints"] for w in wps], float)
+        tips = np.array([w["tip"] for w in wps], float)
+        L = np.linalg.norm(np.diff(tips, axis=0), axis=1)
+        est = armstream.estimate(Q, L, [0.010 * k for k in FASTS])
+        out = dict(name=name, length_mm=round(float(L.sum()) * 1000),
+                   times={str(k): dict(s=round(est[0.010 * k][0], 1), mm_s=round(est[0.010 * k][1] * 1000, 1)) for k in FASTS},
+                   extra_s=45)          # down to the start, back out and Home: about 45 s, plus the shutter pauses
+        json.dump(out, open(cache, "w"))
+        return out
 
 
 def source_file(name):
@@ -386,6 +414,11 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, open(os.path.join(HERE, "editor.html"), "rb").read(), "text/html; charset=utf-8")
             if u.path in ("/sim", "/sim/"):
                 return self.send(200, open(os.path.join(HERE, "homeostat.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path == "/api/runtimes":
+                name = q.get("name", "")
+                if not re.fullmatch(r"layout-[0-9-]+", name):
+                    return self.send(400, dict(error="no such plan"))
+                return self.send(200, run_times(name))
             if u.path == "/api/attractors":
                 return self.send(200, [dict(kind=k, label=a[0], duration=a[6], about=a[7]) for k, a in attractors.ATTRACTORS.items()])
             if u.path == "/api/imports":

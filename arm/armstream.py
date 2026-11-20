@@ -16,7 +16,6 @@ Safety, since a speed command has no time limit of its own:
 """
 import math, time
 import numpy as np
-from kortex_api.autogen.messages import Base_pb2
 
 RATE = 40.0           # commands per second
 KP = 2.0              # 1/s: correction toward the planned position
@@ -75,12 +74,10 @@ class Path:
         k = int(min(u, len(self.G) - 2)); f = u - k
         return self.G[k] * (1 - f) + self.G[k + 1] * f, self.Vg[k] * (1 - f) + self.Vg[k + 1] * f
 
-    def stats(self, dt=0.01):
+    def stats(self):
         """Largest joint speed and acceleration along the smooth path (what the arm will be asked for)."""
-        ts = np.arange(0, self.T, dt)
-        V = np.array([self.at(x)[1] for x in ts])
-        A = np.diff(V, axis=0) / dt
-        return float(np.abs(V).max()), float(np.abs(A).max()) if len(A) else 0.0
+        A = np.diff(self.Vg, axis=0) / self.DT
+        return float(np.abs(self.Vg).max()), float(np.abs(A).max()) if len(A) else 0.0
 
 
 A_LIMIT = 40.0        # deg/s^2 the smoothed path may ask of any joint (the arm's own limit is ~51.6)
@@ -99,6 +96,15 @@ def plan_stream(Q, L, speed, vmax=30.0, amax=25.0, a_limit=A_LIMIT):
     return p, speed
 
 
+def estimate(Q, L, speeds, **kw):
+    """How long the drawing takes at each tip speed (m/s): {speed: (seconds, the speed it really gets)}."""
+    out = {}
+    for v in speeds:
+        p, got = plan_stream(Q, L, v, **kw)
+        out[v] = (p.T, got)
+    return out
+
+
 _FORGET = None
 
 
@@ -106,6 +112,7 @@ def send(base, v):
     """Joint speeds, sent without waiting for the arm's reply: waiting takes 25 ms a command, up to 230 ms
     (2026-11-20), longer than a tick; sent and forgotten, ~5 ms."""
     global _FORGET
+    from kortex_api.autogen.messages import Base_pb2
     if _FORGET is None:
         from kortex_api.RouterClient import RouterClientSendOptions
         _FORGET = RouterClientSendOptions(); _FORGET.andForget = True

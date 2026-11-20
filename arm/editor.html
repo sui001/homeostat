@@ -127,6 +127,7 @@
       <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
     </div>
     <div id="shutterCue" hidden style="margin-top:8px;padding:14px;border-radius:6px;background:#1d1e20;color:#fff;font-size:26px;font-weight:700;text-align:center"></div>
+    <div id="fastNote" class="muted" style="font-size:12px;margin-top:6px"></div>
     <div id="runNote" class="muted" style="font-size:12px;margin-top:6px"></div>
     <button id="stopArm" class="stop" hidden>Stop the arm <span style="font-weight:400;font-size:14px">(Esc or Space)</span></button>
   </div>
@@ -675,6 +676,7 @@ function renderJob(j) {
   $("raiseBox").hidden = lightPlan;            // a light drawing runs where it was planned
   $("airrun").textContent = lightPlan ? "Draw with light…" : "Air-run…";
   document.querySelectorAll(".lightOnly").forEach(o => { o.hidden = !lightPlan; if (!lightPlan && o.selected) $("fast").value = "4"; });
+  loadTimes(lightPlan ? r.name : null);
   shutterCue(j, moving);
   $("airrun").disabled = running || !ready;
   $("park").disabled = running;
@@ -726,6 +728,32 @@ async function postJob(url, b) {
   const r = await fetch(url, { method: "POST", body: JSON.stringify(b) }), d = await r.json();
   pollJob(); if (!r.ok) setTimeout(() => { $("runNote").textContent = d.error; }, 300);
 }
+// how long a light drawing runs at each speed, worked out on the server (cached per plan)
+const FAST_NAMES = { 1: "print speed", 2: "2× faster", 3: "3× faster", 4: "4× faster", 6: "6× faster", 8: "8× faster" };
+let times = null, timesFor = null;
+const mins = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+function showTimes() {
+  for (const o of $("fast").options) {
+    const t = times && times.times[o.value];
+    o.textContent = FAST_NAMES[o.value] + (t ? ` · ${mins(t.s)}` : "");
+  }
+  $("fastNote").textContent = !timesFor ? "" : !times ? "Timing the drawing at each speed…" : (() => {
+    const t = times.times[$("fast").value]; if (!t) return "";
+    const capped = t.mm_s < 10 * +$("fast").value * 0.99;
+    return `Drawing ${mins(t.s)} (${(times.length_mm / 1000).toFixed(1)} m at ${Math.round(t.mm_s)} mm/s${capped ? ", as fast as its curves allow" : ""}), ` +
+           `plus about ${mins(times.extra_s)} getting there and back and the two shutter pauses.`;
+  })();
+}
+async function loadTimes(name) {
+  if (name === timesFor) return;
+  timesFor = name; times = null; showTimes();
+  if (!name) return;
+  try {
+    const r = await fetch("/api/runtimes?" + qs({ name })), d = await r.json();
+    if (r.ok && timesFor === name) { times = d; showTimes(); }
+  } catch (e) { if (timesFor === name) timesFor = null; }
+}
+$("fast").addEventListener("change", showTimes);
 $("airrun").onclick = () => {
   const r = lastJob && lastJob.result, mm = parseFloat($("raise_mm").value);
   if (!(mm >= 0 && mm <= 100)) { $("runNote").textContent = "Raise has to be 0 to 100 mm."; return; }
@@ -733,7 +761,8 @@ $("airrun").onclick = () => {
   if (r.params && r.params.light) {
     const pin = +$("light_pin").value, hold = parseFloat($("hold_s").value);
     if (!(hold >= 0 && hold <= 60)) { $("runNote").textContent = "The shutter pause has to be 0 to 60 s."; return; }
-    return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b> From Home down to the start of ${r.name}, ` +
+    const tt = times && times.name === r.name && times.times[fast];
+    return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b>${tt ? ` The drawing takes about <b>${mins(tt.s)}</b>.` : ""} From Home down to the start of ${r.name}, ` +
                `checks the drawing with the arm (that can take up to a minute), then it waits ${hold} s: <b>open the shutter</b> (three high beeps). ` +
                `${pin ? `The light on wrist pin ${pin} comes on` : "The light isn't switched by the arm, so it shows on the way in and out too"}; ` +
                `it draws the path, ${pin ? "the light goes off, " : ""}and waits ${hold} s again: <b>close the shutter</b> (two low beeps). Then it leaves the safe way and goes Home. ` +
