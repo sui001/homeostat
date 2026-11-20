@@ -48,6 +48,8 @@ HOME_TOL = 2.0          # deg
 
 d = json.load(open(PLAN))
 LIGHT = bool(d["params"].get("light"))
+if LIGHT:
+    RAISE = 0.0          # a light drawing runs where it was planned: there's nothing to keep the claw off
 LIGHT_PIN = int(os.environ.get("AIR_LIGHT_PIN", 0)) if LIGHT else 0
 HOLD = float(os.environ.get("AIR_LIGHT_HOLD_S", 5)) if LIGHT else 0.0
 if not 0 <= LIGHT_PIN <= 4:
@@ -215,7 +217,7 @@ try:
         if isinstance(wl, tuple):
             print("         %-34s timed and checked by the arm when it gets there" % name)
             continue
-        p = waypoint.problems(base, wl)
+        p = armmove.problems(base, wl)
         if p:
             bad += 1; print("REFUSED  %-34s %s" % (name, "; ".join(p[:3])))
     print("validated %d moves with the arm: %d refused" % (len(moves), bad))
@@ -250,18 +252,23 @@ try:
     for name, wl in moves:
         if isinstance(wl, tuple):   # a part of the path, from where the arm now stands (at rest)
             i0, i1 = wl
-            if LIGHT and i0 == k0:    # at the start of the drawing, at rest
-                shutter("OPEN", light.on)
-                print("LIGHT ON", flush=True)
+            lit_part = LIGHT and i0 >= k0
+            if lit_part and i0 > k0:  # between parts of a drawing: the light goes off while the arm checks the next
+                light.off(); print("LIGHT OFF while the arm checks the next part%s" % ("" if LIGHT_PIN else " (no pin: it stays on, a brighter dot here)"), flush=True)
+            live.what = "the arm is checking %s" % name
             t, rounds = fit(chain[1 + i0:1 + i1], path_times[i0:i1], first=0)   # from rest: its first step may stretch too
             wl = joint_list(chain[1 + i0:1 + i1], t)
-            p = waypoint.problems(base, wl)
+            p = armmove.problems(base, wl)
             if p:
                 fb = cyc.RefreshFeedback()
                 json.dump(dict(name=name, here=[a.position for a in fb.actuators], joints=[list(map(float, q)) for q in chain[1 + i0:1 + i1]],
                                times=list(map(float, t)), problems=p), open("air_run_refused.json", "w"))
                 raise SystemExit("REFUSED %s: %s. The arm has stopped where that part starts: park it at Home." % (name, "; ".join(p[:2])))
-            print("  %s: timing fitted in %d round(s), %.0f s" % (name, rounds, sum(t)))
+            print("  %s: timing fitted in %d round(s), %.0f s" % (name, rounds, sum(t)), flush=True)
+            if lit_part:
+                if i0 == k0:          # checked and ready at the start: now the camera
+                    shutter("OPEN")
+                light.on(); print("LIGHT ON", flush=True)
             run(name, wl, 60 + 2 * sum(t))
             continue
         run(name, wl, 60 + 2 * est)

@@ -106,7 +106,7 @@
   <div id="runBox" class="card" hidden style="margin-top:8px">
     <b>Air-run on the arm</b> <span class="muted">moves the arm along the checked plan, raised; nothing is extruded</span>
     <div class="row" style="align-items:flex-end">
-      <label style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
+      <label id="raiseBox" style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
       <label style="width:130px">Speed<select id="fast" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
         <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option></select></label>
       <label id="lightOpts1" hidden style="width:150px">Light switched on<select id="light_pin" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
@@ -514,7 +514,6 @@ $("show_arm").onchange = () => draw();
 $("light").checked = !!P.light;
 $("light").onchange = () => {
   P.light = $("light").checked;
-  if (P.light) $("raise_mm").value = 0;        // a light drawing is run where it was planned
   changed({});
 };
 function showTable(t) {
@@ -631,6 +630,7 @@ function renderJob(j) {
   $("runBox").hidden = !j.on_arm;
   const lightPlan = !!(r && r.params && r.params.light);
   $("lightOpts1").hidden = $("lightOpts2").hidden = !lightPlan;
+  $("raiseBox").hidden = lightPlan;            // a light drawing runs where it was planned
   $("airrun").textContent = lightPlan ? "Draw with light…" : "Air-run…";
   shutterCue(j, moving);
   $("airrun").disabled = running || !ready;
@@ -690,13 +690,13 @@ $("airrun").onclick = () => {
   if (r.params && r.params.light) {
     const pin = +$("light_pin").value, hold = parseFloat($("hold_s").value);
     if (!(hold >= 0 && hold <= 60)) { $("runNote").textContent = "The shutter pause has to be 0 to 60 s."; return; }
-    return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b> From Home down to the start of ${r.name}` +
-               `${mm ? `, ${mm} mm above the planned height` : ""}, then it waits ${hold} s: <b>open the shutter</b> (three high beeps). ` +
+    return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b> From Home down to the start of ${r.name}, ` +
+               `checks the drawing with the arm (that can take up to a minute), then it waits ${hold} s: <b>open the shutter</b> (three high beeps). ` +
                `${pin ? `The light on wrist pin ${pin} comes on` : "The light isn't switched by the arm, so it shows on the way in and out too"}; ` +
                `it draws the path, ${pin ? "the light goes off, " : ""}and waits ${hold} s again: <b>close the shutter</b> (two low beeps). Then it leaves the safe way and goes Home. ` +
                `Keep this page in front: the countdown shows here. Stand at the arm with the e-stop in reach.`,
                () => { audio = audio || new AudioContext(); audio.resume(); beep(1, 660);
-                       postJob("/api/airrun", { name: r.name, raise_mm: mm, fast, light_pin: pin, hold_s: hold }); });
+                       postJob("/api/airrun", { name: r.name, raise_mm: 0, fast, light_pin: pin, hold_s: hold }); });
   }
   ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than printing` : ""}.</b> From Home to above the start of ${r.name}, along the path ${mm} mm above the planned height, ` +
       `then straight up and back to Home. Nothing is extruded. Stand at the arm with the e-stop in reach: a Stop button shows here while it runs.`,

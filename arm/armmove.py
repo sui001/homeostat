@@ -56,13 +56,30 @@ def step_times(start, qs, jv=10.0, min_dt=0.3, acc=30.0):
     return smooth_times(steps, dt, acc)
 
 
+def _slow():
+    from kortex_api.RouterClient import RouterClientSendOptions
+    o = RouterClientSendOptions(); o.timeout_ms = 120000   # the library's 10 s is too short for 900 waypoints
+    return o
+
+
+def validate(base, wl):
+    """The arm's trajectory error report for a waypoint list, given as long as it needs."""
+    return base.ValidateWaypointList(wl, options=_slow()).trajectory_error_report.trajectory_error_elements
+
+
+def problems(base, wl):
+    """What the arm says is wrong with this trajectory, as text. Empty means it will take it."""
+    return ["%s (value %.3f, allowed %.3f to %.3f, waypoint %d)" % (Base_pb2.TrajectoryErrorType.Name(e.error_type),
+            e.error_value, e.min_value, e.max_value, e.index) for e in validate(base, wl)]
+
+
 def fit(base, qs, t0, first=1):
     """Ask the arm about a joint list whose first waypoint is reached from where the arm stands. Where it
     finds a joint too fast, accelerating too hard, or its curve overshooting a joint limit, slow the whole
     list down evenly and ask again."""
     t = list(t0)
     for rounds in range(1, 31):
-        rep = base.ValidateWaypointList(joint_list(qs, t)).trajectory_error_report.trajectory_error_elements
+        rep = validate(base, joint_list(qs, t))
         if not rep or any(e.error_type not in TIMING for e in rep):
             break
         f = 1.0
@@ -86,7 +103,7 @@ def run(base, name, wl, timeout):
             res["ev"] = ev; res["n"] = n; done.set()
     h = base.OnNotificationActionTopic(on_event, Base_pb2.NotificationOptions())
     t0 = time.time()
-    base.ExecuteWaypointTrajectory(wl)
+    base.ExecuteWaypointTrajectory(wl, options=_slow())
     ok = done.wait(timeout); base.Unsubscribe(h)
     if not ok:
         base.Stop(); raise SystemExit("TIMED OUT on %s after %.0f s. Sent Stop()." % (name, timeout))
@@ -101,7 +118,7 @@ def run_exit(base, cyc, ex, label="safe exit"):
         cur = [a.position for a in cyc.RefreshFeedback().actuators]
         t, rounds = fit(base, ex["chain"], step_times(cur, ex["chain"]), first=0)
         wl = joint_list(ex["chain"], t)
-        p = waypoint.problems(base, wl)
+        p = problems(base, wl)
         if p:
             raise SystemExit("REFUSED the %s: %s. The arm has not moved." % (label, "; ".join(p[:2])))
         run(base, "%s: back out and rise" % label, wl, 60 + 2 * sum(t))
