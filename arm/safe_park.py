@@ -27,10 +27,10 @@ PLAN = sys.argv[1] if len(sys.argv) > 1 else None
 RAISE = float(os.environ.get("PARK_RAISE_MM", 0)) / 1000
 ARMED = os.environ.get("KINOVA_CONFIRM") == "yes"
 
-W, table = np.zeros((0, 3)), 0.16
+W, table, LIGHT = np.zeros((0, 3)), 0.16, False
 if PLAN:
     d = json.load(open(PLAN))
-    W, table = np.array(d["strand"]) + [0, 0, RAISE], d["params"]["table"]
+    W, table, LIGHT = np.array(d["strand"]) + [0, 0, RAISE], d["params"]["table"], bool(d["params"].get("light"))
 
 t = TCPTransport(); r = RouterClient(t, RouterClient.basicErrorCallback); t.connect("192.168.1.10", 10000)
 info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"]; info.password = os.environ["KINOVA_PASS"]
@@ -47,7 +47,7 @@ try:
     if len(W):
         print("print taken as far as point %d of %d (nearest the tip, %.0f mm away)"
               % (upto, len(W) - 1, 1000 * np.linalg.norm(W[upto] - tip)))
-    ex = exit_path.plan_exit(q, W, table, upto)
+    ex = exit_path.plan_exit(q, W, table, upto, light=LIGHT)
     if not ex["ok"]:
         sys.exit("No safe way out from here: %s. Nothing moved: move the arm clear by hand." % ex["reason"])
     print("way out: back out %.0f mm along the nozzle, up to z %.2f m, then Home; closest %.1f mm (%s)"

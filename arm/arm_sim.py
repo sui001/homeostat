@@ -36,8 +36,7 @@ if abs(d["params"].get("nozzle", gen3.ARM_TCP) - gen3.NOZZLE) > 1e-6:
              % (d["params"].get("nozzle", gen3.ARM_TCP) * 1000, gen3.NOZZLE * 1000))
 W = np.array(d["strand"]); wps = d["waypoints"]; table = d["params"]["table"]
 s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
-S = np.arange(0, s[-1] + 1e-9, 0.001); dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
-if plan.needs_post(W, table): dense, S = plan.with_post(W, dense, S, table)
+dense, S = plan.strand_samples(W, table, d["params"].get("light", False))   # nothing to hit when drawing with light
 
 # no motion here, but a second session can upset one that is driving the arm (see ~/kinova/armlock.py)
 try:

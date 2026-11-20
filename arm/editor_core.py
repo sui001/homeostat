@@ -67,12 +67,9 @@ def in_sweep(p, sweep):
     return sweep[0] <= a <= sweep[1]
 
 
-def quick_check(W, table, sweep=None, cancel=None):
+def quick_check(W, table, sweep=None, cancel=None, light=False):
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
-    S = np.arange(0, s[-1] + 1e-9, 0.001)
-    dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
-    if plan.needs_post(W, table):
-        dense, S = plan.with_post(W, dense, S, table)
+    dense, S = plan.strand_samples(W, table, light)
     status, free = [], []
     for i, tip in enumerate(W):
         if cancel and i % 16 == 0 and cancel():
@@ -80,7 +77,7 @@ def quick_check(W, table, sweep=None, cancel=None):
         if not in_sweep(tip, sweep):
             status.append(OUTSIDE_SWEEP); free.append(0); continue
         tan = W[min(i + 1, len(W) - 1)] - W[max(i - 1, 0)]; tan /= (np.linalg.norm(tan) or 1)
-        ok = arm_only(tip, DIRS, table) & (DIRS @ tan <= 0.5)
+        ok = arm_only(tip, DIRS, table) & ((DIRS @ tan <= 0.5) | light)
         if not ok.any():
             status.append(NO_REACH); free.append(0); continue
         D = DIRS[ok]; m = S <= s[i] + 1e-9
@@ -92,4 +89,4 @@ def quick_check(W, table, sweep=None, cancel=None):
         status.append(OK if n else BLOCKED); free.append(n)
     stop = next((i for i, v in enumerate(status) if v != OK), len(W))
     return dict(status=status, free=free, stop=stop, total_mm=round(float(s[-1]) * 1000, 1),
-                printable_mm=round(float(s[stop - 1]) * 1000, 1) if stop else 0.0, post=bool(plan.needs_post(W, table)))
+                printable_mm=round(float(s[stop - 1]) * 1000, 1) if stop else 0.0, post=bool(plan.needs_post(W, table)) and not light)

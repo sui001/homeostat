@@ -65,6 +65,7 @@
     <label>Tilt about Y (°)<input type="number" id="pitch" step="5"></label>
     <label>Raise on a post (mm)<input type="number" id="lift" step="10" min="0"></label>
   </div>
+  <label class="check"><input type="checkbox" id="light"> <b>Light drawing</b> <span class="muted">the arm carries a light for a long exposure: nothing is left behind, so the path may cross itself and only reach and the table limit it</span></label>
   <div class="row">
     <button id="flat">Lay flat</button>
     <button id="fit">Fit inside reach</button>
@@ -108,6 +109,9 @@
       <label style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
       <label style="width:130px">Speed<select id="fast" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
         <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option></select></label>
+      <label id="lightOpts1" hidden style="width:150px">Light switched on<select id="light_pin" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
+        <option value="0">not switched (always on)</option><option value="1">wrist pin 1</option><option value="2">wrist pin 2</option><option value="3">wrist pin 3</option><option value="4">wrist pin 4</option></select></label>
+      <label id="lightOpts2" hidden style="width:120px">Shutter pause (s)<input type="number" id="hold_s" value="5" min="0" max="60" step="1"></label>
       <button id="airrun">Air-run…</button>
       <button id="park">Park at Home…</button>
     </div>
@@ -115,6 +119,7 @@
       <div id="confirmText"></div>
       <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
     </div>
+    <div id="shutterCue" hidden style="margin-top:8px;padding:14px;border-radius:6px;background:#1d1e20;color:#fff;font-size:26px;font-weight:700;text-align:center"></div>
     <div id="runNote" class="muted" style="font-size:12px;margin-top:6px"></div>
     <button id="stopArm" class="stop" hidden>Stop the arm <span style="font-weight:400;font-size:14px">(Esc or Space)</span></button>
   </div>
@@ -163,7 +168,7 @@ function inSweep(p) {
   if (!$("use_sweep").checked || !sweep) return true;
   const a = Math.atan2(p[1], p[0]) * 180 / Math.PI; return a >= sweep[0] && a <= sweep[1];
 }
-const key = () => JSON.stringify([FIELDS.map(k => P[k]), P.source || "", $("use_sweep").checked]);
+const key = () => JSON.stringify([FIELDS.map(k => P[k]), P.source || "", $("use_sweep").checked, !!P.light]);
 
 // ------------------------------------------------------------------ view
 const cv = $("view"), g = cv.getContext("2d");
@@ -291,14 +296,14 @@ function stats() {
   } else rows.push(["Printable", `<span class="muted">not checked for this placement</span>`]);
   $("stats").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
   const f = v => +(+v).toFixed(4);
-  $("cmd").textContent = `python plan.py ${P.source ? "--path-file plans/imports/" + P.source + ".json " : ""}--from-t ${f(P.from_t)} --seconds ${f(P.seconds)} --scale ${f(P.scale)} --x ${f(P.x)} --y ${f(P.y)} --yaw ${f(P.yaw)} --roll ${f(P.roll)} --pitch ${f(P.pitch)} --table ${f(P.table)} --lift ${f(P.lift / 1000)}`;
+  $("cmd").textContent = `python plan.py ${P.source ? "--path-file plans/imports/" + P.source + ".json " : ""}--from-t ${f(P.from_t)} --seconds ${f(P.seconds)} --scale ${f(P.scale)} --x ${f(P.x)} --y ${f(P.y)} --yaw ${f(P.yaw)} --roll ${f(P.roll)} --pitch ${f(P.pitch)} --table ${f(P.table)} --lift ${f(P.lift / 1000)}${P.light ? " --light" : ""}`;
 }
 function render() { draw(); stats(); }
 function syncFields() { for (const k of FIELDS) if (document.activeElement !== $(k)) $(k).value = +(+P[k]).toFixed(k === "x" || k === "y" || k === "table" ? 3 : 2); }
 
 // ------------------------------------------------------------------ server
 const qs = o => new URLSearchParams(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)]))).toString();
-const body = () => Object.assign({}, P, { lift: P.lift / 1000, use_sweep: $("use_sweep").checked, source: P.source || "" });
+const body = () => Object.assign({}, P, { lift: P.lift / 1000, use_sweep: $("use_sweep").checked, source: P.source || "", light: !!P.light });
 async function loadShape() {
   const k = [P.preset, P.seconds, P.scale, P.from_t, P.source || ""].join();
   if (k === baseKey) return;
@@ -506,6 +511,12 @@ for (const k of FIELDS) $(k).addEventListener("change", () => {
 });
 $("use_sweep").onchange = () => changed();
 $("show_arm").onchange = () => draw();
+$("light").checked = !!P.light;
+$("light").onchange = () => {
+  P.light = $("light").checked;
+  if (P.light) $("raise_mm").value = 0;        // a light drawing is run where it was planned
+  changed({});
+};
 function showTable(t) {
   const rows = t.touches.map((p, i) => `#${i + 1} at ${p.at}: x ${p.tip[0].toFixed(3)} y ${p.tip[1].toFixed(3)} z ${p.tip[2].toFixed(4)} m`);
   let sumry = t.touches.length ? `<b style="color:#1d1e20">Table at z ${t.mean.toFixed(4)} m</b> from ${t.touches.length} touch${t.touches.length > 1 ? "es" : ""}, ${t.spread_mm} mm between highest and lowest` +
@@ -572,7 +583,7 @@ addEventListener("keydown", e => {
   if (e.key === "Escape" && e.target.tagName !== "INPUT") { selected = false; hover = null; draw(); }
 });
 // the plan's params come back from the server with lift in metres; the page keeps it in mm
-const sameParams = p => !!p && (p.source || "") === (P.source || "") && FIELDS.every(k => Math.abs((k === "lift" ? p[k] * 1000 : p[k]) - P[k]) < 1e-6);
+const sameParams = p => !!p && (p.source || "") === (P.source || "") && !!p.light === !!P.light && FIELDS.every(k => Math.abs((k === "lift" ? p[k] * 1000 : p[k]) - P[k]) < 1e-6);
 async function pollJob() {
   let j;
   try { j = await (await fetch("/api/job")).json(); }
@@ -618,6 +629,10 @@ function renderJob(j) {
   // air-run: only a plan that matches the screen and passed the arm check
   const ready = !!(j.on_arm && r && clear && same);
   $("runBox").hidden = !j.on_arm;
+  const lightPlan = !!(r && r.params && r.params.light);
+  $("lightOpts1").hidden = $("lightOpts2").hidden = !lightPlan;
+  $("airrun").textContent = lightPlan ? "Draw with light…" : "Air-run…";
+  shutterCue(j, moving);
   $("airrun").disabled = running || !ready;
   $("park").disabled = running;
   $("stopArm").hidden = !moving; armMoving = moving;
@@ -631,6 +646,36 @@ function renderJob(j) {
     ready ? `Ready to air-run ${r.name}. The arm has to start at Home.` :
     "Plan and check this placement on the arm first; the air-run follows that checked plan.";
 }
+// SHUTTER lines from air_run.py: a big countdown and beeps, for working the camera in the dark
+let audio = null, cueSeen = 0, cueTimer = null;
+function beep(n, hz) {
+  if (!audio) return;
+  for (let i = 0; i < n; i++) {
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime + i * 0.25;
+    o.frequency.value = hz; g.gain.setValueAtTime(0.25, t); g.gain.setValueAtTime(0, t + 0.15);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.16);
+  }
+}
+function shutterCue(j, moving) {
+  const box = $("shutterCue");
+  if (!moving) { box.hidden = true; clearInterval(cueTimer); cueSeen = 0; return; }
+  const cues = j.log.map((l, i) => [l, i]).filter(([l]) => /SHUTTER (OPEN|CLOSE)|LIGHT O(N|FF)/.test(l));
+  if (!cues.length) return;
+  const [l, i] = cues[cues.length - 1];
+  if (i + 1 <= cueSeen) return;
+  cueSeen = i + 1; clearInterval(cueTimer); box.hidden = false;
+  if (/LIGHT ON/.test(l)) { box.textContent = "Drawing: light on"; box.style.background = "#2e7d4f"; beep(1, 660); return; }
+  if (/LIGHT OFF/.test(l)) { box.textContent = "Light off"; box.style.background = "#1d1e20"; return; }
+  const open = /OPEN/.test(l), secs = parseFloat((l.match(/: ([\d.]+) s/) || [0, 5])[1]), t0 = Date.now();
+  box.style.background = open ? "#c0392b" : "#3b6fd6";
+  beep(open ? 3 : 2, open ? 880 : 440);
+  const tick = () => {
+    const left = Math.max(0, Math.ceil(secs - (Date.now() - t0) / 1000));
+    box.textContent = (open ? "Open the shutter now" : "Close the shutter now") + (left ? ` · ${left}` : "");
+    if (!left) clearInterval(cueTimer);
+  };
+  tick(); cueTimer = setInterval(tick, 200);
+}
 function ask(html, action) { $("confirmText").innerHTML = html; $("confirmBox").hidden = false; pendingAction = action; }
 $("confirmCancel").onclick = () => { $("confirmBox").hidden = true; pendingAction = null; };
 $("confirmGo").onclick = () => { $("confirmBox").hidden = true; const a = pendingAction; pendingAction = null; if (a) a(); };
@@ -642,6 +687,17 @@ $("airrun").onclick = () => {
   const r = lastJob && lastJob.result, mm = parseFloat($("raise_mm").value);
   if (!(mm >= 0 && mm <= 100)) { $("runNote").textContent = "Raise has to be 0 to 100 mm."; return; }
   const fast = +$("fast").value;
+  if (r.params && r.params.light) {
+    const pin = +$("light_pin").value, hold = parseFloat($("hold_s").value);
+    if (!(hold >= 0 && hold <= 60)) { $("runNote").textContent = "The shutter pause has to be 0 to 60 s."; return; }
+    return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b> From Home down to the start of ${r.name}` +
+               `${mm ? `, ${mm} mm above the planned height` : ""}, then it waits ${hold} s: <b>open the shutter</b> (three high beeps). ` +
+               `${pin ? `The light on wrist pin ${pin} comes on` : "The light isn't switched by the arm, so it shows on the way in and out too"}; ` +
+               `it draws the path, ${pin ? "the light goes off, " : ""}and waits ${hold} s again: <b>close the shutter</b> (two low beeps). Then it leaves the safe way and goes Home. ` +
+               `Keep this page in front: the countdown shows here. Stand at the arm with the e-stop in reach.`,
+               () => { audio = audio || new AudioContext(); audio.resume(); beep(1, 660);
+                       postJob("/api/airrun", { name: r.name, raise_mm: mm, fast, light_pin: pin, hold_s: hold }); });
+  }
   ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than printing` : ""}.</b> From Home to above the start of ${r.name}, along the path ${mm} mm above the planned height, ` +
       `then straight up and back to Home. Nothing is extruded. Stand at the arm with the e-stop in reach: a Stop button shows here while it runs.`,
       () => postJob("/api/airrun", { name: r.name, raise_mm: mm, fast }));

@@ -40,6 +40,7 @@ job = {"state": "idle", "kind": None, "log": [], "result": None, "run": None, "s
 _proc = [None]            # the motion script running now, for Stop
 KINOVA = os.path.expanduser("~/kinova")
 HOME = [0, 15, 230, 0, 55, 90]          # the arm's factory Home pose, deg
+LAST_RESULT = os.path.join(PLANS, "last_result.json")   # the newest plan's result, kept across restarts
 LAST_RUN = os.path.join(PLANS, "last_run.json")   # the plan last air-run, so Park knows what may be in the way
 LIVE = os.path.join(HERE, "live.json")           # written by air_run.py / safe_park.py while they move the arm
 _idle = {"t": 0.0, "d": None}
@@ -226,7 +227,7 @@ def plan_job(p, check):
                 "--preset", str(p["preset"]), "--seconds", str(p["seconds"]),
                 "--scale", str(p["scale"]), "--from-t", str(p["from_t"]), "--x", str(p["x"]), "--y", str(p["y"]),
                 "--table", str(p["table"]), "--lift", str(p["lift"]), "--yaw", str(p["yaw"]),
-                "--roll", str(p["roll"]), "--pitch", str(p["pitch"]), "--out", out]
+                "--roll", str(p["roll"]), "--pitch", str(p["pitch"]), "--out", out] + (["--light"] if p.get("light") else [])
         if stream(args[:1] + ["-u"] + args[1:] + ["--progress"], {}):
             raise RuntimeError("plan.py failed")
         final = out
@@ -250,6 +251,7 @@ def plan_job(p, check):
         job["result"] = dict(name=name, viewer="/plans/%s.html" % name, printable_mm=d["printable_mm"],
                              total_mm=d["total_mm"], fails=d["fails"], points=len(d["waypoints"]), check=check_summary,
                              params=dict(p, source=p.get("source", "")), checked=bool(c))
+        json.dump(job["result"], open(LAST_RESULT, "w"))     # so a restart of the editor doesn't lose it
         job["state"] = "done"
         log("done: %.0f of %.0f mm printable" % (d["printable_mm"], d["total_mm"]))
     except Exception as e:
@@ -271,10 +273,11 @@ def stream(cmd, env_extra, cwd=HERE):
         _proc[0] = None
 
 
-def airrun_job(name, raise_mm, fast=1.0):
+def airrun_job(name, raise_mm, fast=1.0, light_pin=0, hold_s=5.0):
     try:
         path = os.path.join("plans", name + "_checked.json")
-        env = {"AIR_RAISE_MM": "%g" % raise_mm, "AIR_FAST": "%g" % fast}
+        env = {"AIR_RAISE_MM": "%g" % raise_mm, "AIR_FAST": "%g" % fast,
+               "AIR_LIGHT_PIN": "%d" % light_pin, "AIR_LIGHT_HOLD_S": "%g" % hold_s}
         log("asking the arm whether it can run this, raised %g mm, %s (no motion)" % (raise_mm, "print speed" if fast == 1 else "%g x faster" % fast))
         if stream([sys.executable, "-u", "air_run.py", path], env):
             if any("no IK solution" in l for l in job["log"][-4:]):
@@ -419,10 +422,13 @@ class H(BaseHTTPRequestHandler):
                     fast = float(body.get("fast", 1))
                     if not (1 <= fast <= 4):
                         return self.send(400, {"error": "speed must be 1-4 x"})
+                    light_pin, hold_s = int(body.get("light_pin", 0)), float(body.get("hold_s", 5))
+                    if not (0 <= light_pin <= 4 and 0 <= hold_s <= 60):
+                        return self.send(400, {"error": "light pin must be 0-4 and the shutter pause 0-60 s"})
                     c = json.load(open(os.path.join(PLANS, name + "_checked.json"))).get("arm_check") or {}
                     if c.get("ik_refused") or c.get("clashes") or c.get("traj_errors"):
                         return self.send(400, {"error": "that plan did not pass the arm check"})
-                    ok = start_job("airrun", airrun_job, (name, raise_mm, fast))
+                    ok = start_job("airrun", airrun_job, (name, raise_mm, fast, light_pin, hold_s))
                     if ok:
                         json.dump(dict(name=name, raise_mm=raise_mm), open(LAST_RUN, "w"))
                 return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "something is already running"})
@@ -447,6 +453,7 @@ class H(BaseHTTPRequestHandler):
                 json.dump(dict(z=round(z, 4), touches=len(_touches), when=time.strftime("%Y-%m-%d %H:%M")), open(TABLE, "w"))
                 return self.send(200, table_state())
             p = nums(body)
+            p["light"] = bool(body.get("light"))
             p["source"] = str(body.get("source", "") or "")
             p["path_file"] = source_file(p["source"])
             if u.path == "/api/quick":
@@ -454,7 +461,7 @@ class H(BaseHTTPRequestHandler):
                 sweep = _sweep["sweep"] if body.get("use_sweep") else None
                 _quick_gen[0] += 1; mine = _quick_gen[0]
                 try:
-                    res = ec.quick_check(W, p["table"], sweep, cancel=lambda: _quick_gen[0] != mine)
+                    res = ec.quick_check(W, p["table"], sweep, cancel=lambda: _quick_gen[0] != mine, light=p["light"])
                 except ec.Cancelled:
                     return self.send(409, {"error": "superseded by a newer check"})
                 res["W"] = W.round(5).tolist()
@@ -480,6 +487,10 @@ def listen_address():
 
 if __name__ == "__main__":
     host = listen_address()
+    try:
+        job["result"] = json.load(open(LAST_RESULT))
+    except Exception:
+        pass
     threading.Thread(target=load_sweep, daemon=True).start()
     threading.Thread(target=reach, args=(0.16,), daemon=True).start()   # warm the default table height
     print("layout editor on http://%s:%d%s  (Ctrl-C to stop)" % (host, PORT, ", on the arm" if ON_ARM else ""), flush=True)

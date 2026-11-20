@@ -246,6 +246,19 @@ def choose_dirs(D, C, banned, start):
         path.append(int(back[i][path[-1]]))
     return path[::-1], n
 
+def strand_samples(W, table_z, light=False):
+    """1 mm samples along the path (arc length S), with the post under the anchor: what the hot end and
+    arm must keep clear of. Drawing with light leaves nothing behind, so then there is nothing to avoid
+    but the table (checked separately)."""
+    if light:
+        return np.zeros((0, 3)), np.zeros(0)
+    s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
+    S = np.arange(0, s[-1] + 1e-9, 0.001)
+    dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
+    if needs_post(W, table_z):
+        dense, S = with_post(W, dense, S, table_z)
+    return dense, S
+
 def with_post(W, dense, S, table_z):
     post = np.array([[W[0][0] + 0.010 * math.cos(a), W[0][1] + 0.010 * math.sin(a), z]
                      for z in np.arange(table_z, W[0][2], 0.005) for a in np.arange(0, 6.28, 0.785)])
@@ -261,10 +274,8 @@ def plan(args):
     if args.trim > 0:
         W = W[: max(2, len(W) - int(round(args.trim / args.step)))]
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
-    S = np.arange(0, s[-1] + 1e-9, 0.001)
-    dense = np.c_[[np.interp(S, s, W[:, k]) for k in range(3)]].T
-    if needs_post(W, args.table):   # the post the anchor sits on: 20 mm across, from the table up, always in the way
-        dense, S = with_post(W, dense, S, args.table)
+    # the strand so far (and the post the anchor sits on), or nothing at all when drawing with light
+    dense, S = strand_samples(W, args.table, args.light)
     D = fib_dirs()
     # 1. every clear direction at every point
     C = np.zeros((len(W), len(D)))
@@ -274,7 +285,8 @@ def plan(args):
         tan = W[min(i + 1, len(W) - 1)] - W[max(i - 1, 0)]; tan /= (np.linalg.norm(tan) or 1)
         m = S <= s[i] + 1e-9
         C[i] = clearance_all_dirs(D, tip, dense[m], s[i] - S[m], args.table)
-        C[i][D @ tan > 0.5] = -1.0        # moving into the nozzle's own direction buries the strand
+        if not args.light:
+            C[i][D @ tan > 0.5] = -1.0    # moving into the nozzle's own direction buries the strand
         C[i] = np.minimum(C[i], arm_clearance_all_dirs(D, tip, dense[m], args.table))
         C[i][~arm_limits_ok(tip, D)[0]] = -1.0   # out of reach, wrist or elbow past its limit, elbow too straight
     free = (C >= 0).sum(1)
@@ -353,6 +365,7 @@ if __name__ == "__main__":
     ap.add_argument("--trim", type=float, default=0.0, help="stop this many mm before the end of the spiral")
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--progress", action="store_true", help="print progress lines as it goes")
+    ap.add_argument("--light", action="store_true", help="drawing with light: nothing is left behind, so no strand to avoid")
     a = ap.parse_args()
     if a.long_nozzle: HOTEND[:] = HOTEND_LONG
     res = plan(a)

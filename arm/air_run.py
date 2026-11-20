@@ -11,6 +11,13 @@ Env:
   AIR_SPEED      mm/s along the strand (default 10, the planned print speed)
   AIR_BLEND_MM   blending radius at each waypoint so it flows instead of stopping every 2 mm (default 0.8)
 
+  AIR_LIGHT_PIN  light drawings: the wrist pin (1-4) the light is switched on, 0 = none (default 0)
+  AIR_LIGHT_HOLD_S  light drawings: the pause at the start and at the end, for the camera's shutter (default 5)
+
+A light drawing (a plan made with --light) runs dark up to the start, holds there while you open the
+shutter, switches the light on along the path only, switches it off and holds again while you close the
+shutter, then leaves the usual safe way. SHUTTER lines in the output mark those moments.
+
 Follows the ~/kinova conventions: takes the arm lock, refuses unless the arm is idle at Home,
 and Ctrl-C (or any error) sends Stop(). Sequence: Home -> above the start -> along the path ->
 the safe exit (back out along the nozzle, rise above the print, then Home; exit_path.py).
@@ -40,6 +47,11 @@ HOVER = float(os.environ.get("AIR_HOVER_MM", 15)) / 1000   # extra height for th
 HOME_TOL = 2.0          # deg
 
 d = json.load(open(PLAN))
+LIGHT = bool(d["params"].get("light"))
+LIGHT_PIN = int(os.environ.get("AIR_LIGHT_PIN", 0)) if LIGHT else 0
+HOLD = float(os.environ.get("AIR_LIGHT_HOLD_S", 5)) if LIGHT else 0.0
+if not 0 <= LIGHT_PIN <= 4:
+    sys.exit("AIR_LIGHT_PIN must be 0 (no light wired) or a wrist pin, 1 to 4.")
 wps = [w for w in d["waypoints"] if w["ok"]]
 if FAST > 1:   # faster runs: fewer, longer steps (every FAST-th point) rather than the same steps squeezed
     step = int(round(FAST))
@@ -87,7 +99,7 @@ info = Session_pb2.CreateSessionInfo(); info.username = os.environ["KINOVA_USER"
 info.session_inactivity_timeout = 60000; info.connection_inactivity_timeout = 2000
 sm = SessionManager(r); sm.CreateSession(info)
 base = BaseClient(r); cyc = BaseCyclicClient(r)
-lock = live = None
+lock = live = light = None
 try:
     tt = ControlConfigClient(r).GetToolConfiguration().tool_transform
     if abs(tt.z - gen3.ARM_TCP) > 1e-3 or abs(tt.x) + abs(tt.y) > 1e-3:
@@ -148,6 +160,8 @@ try:
         else:
             seglen.append(np.linalg.norm(P[k] - P[k - 1]))
         chain.append(qk); q = qk
+        if k == 1:
+            k0 = len(chain) - 1          # chain[k0] is the first point of the path; before it, the way down onto it
     q_above = chain[0]
     steps = [dstep(a_, b_) for a_, b_ in zip(chain[:-1], chain[1:])]
     worst = max(st[:5].max() for st in steps); roll = max(st[5] for st in steps)
@@ -167,7 +181,7 @@ try:
     # speed or direction sharply, from rest and to rest.
     path_signed = [((b_ - a_ + 180) % 360) - 180 for a_, b_ in zip(chain[:-1], chain[1:])]
     MAX_WP = int(os.environ.get("AIR_MAX_WP", 900))   # the arm refuses a trajectory of more than 1000 waypoints
-    if FAST == 1 and len(chain) + 1 <= MAX_WP:
+    if FAST == 1 and len(chain) + 1 <= MAX_WP and not LIGHT:
         # one list from Home: joint move to above the start, a short hold, down onto the path, along it, up
         qs = [chain[0]] + chain
         times = smooth_times([np.array(waypoint.travel(cur, chain[0])), np.zeros(6)] + path_signed, [approach, 0.6] + dur, ACC)
@@ -183,11 +197,18 @@ try:
         path_times = smooth_times(path_signed, dur, ACC)
         n = len(chain) - 1
         cuts = list(range(0, n, MAX_WP)) + [n]
+        if LIGHT:   # the way down onto the start on its own, dark; then the path, lit, in as few parts as it takes
+            cuts = [0, k0] + list(range(k0 + MAX_WP, n, MAX_WP)) + [n]
         moves = [("Home -> above the start (joint move)", waypoint.build(cur, q_above, 20.0, "approach"))]
         for c, (i0, i1) in enumerate(zip(cuts[:-1], cuts[1:])):
-            moves.append(("path part %d of %d%s (%d joint waypoints)" % (c + 1, len(cuts) - 1, "" if FAST == 1 else " at %gx" % FAST, i1 - i0),
-                          (i0, i1)))
-        est = approach + sum(path_times)
+            label = "path part %d of %d" % (c + 1, len(cuts) - 1)
+            if LIGHT:
+                label = "down onto the start" if c == 0 else "drawing, part %d of %d" % (c, len(cuts) - 2)
+            moves.append(("%s%s (%d joint waypoints)" % (label, "" if FAST == 1 else " at %gx" % FAST, i1 - i0), (i0, i1)))
+        est = approach + sum(path_times) + 2 * HOLD
+        if LIGHT:
+            print("light drawing: the exposure (light on) lasts about %.0f s; light %s"
+                  % (sum(path_times[k0:]), "on wrist pin %d" % LIGHT_PIN if LIGHT_PIN else "not switched (no pin set): it stays on"))
     # validate before any motion
     bad = 0
     for name, wl in moves:
@@ -206,6 +227,7 @@ try:
         sys.exit(0)
 
     lock = armlock.take("homeostat air-run")
+    light = armmove.WristLight(r, LIGHT_PIN) if LIGHT else None    # set up now, and off
     print("ARMED: running in about 3 s. Ctrl-C stops the arm.")
     time.sleep(3)
 
@@ -217,10 +239,20 @@ try:
         live.what = name
         armmove.run(base, name, wl, timeout)
 
+    def shutter(word, then=None):
+        """A pause for the camera: the editor beeps and counts down on the SHUTTER line."""
+        print("SHUTTER %s: %.0f s" % (word, HOLD), flush=True)
+        live.what = "%s the shutter" % word.lower()
+        time.sleep(HOLD)
+        if then: then()
+
     t_start = time.time()
     for name, wl in moves:
         if isinstance(wl, tuple):   # a part of the path, from where the arm now stands (at rest)
             i0, i1 = wl
+            if LIGHT and i0 == k0:    # at the start of the drawing, at rest
+                shutter("OPEN", light.on)
+                print("LIGHT ON", flush=True)
             t, rounds = fit(chain[1 + i0:1 + i1], path_times[i0:i1], first=0)   # from rest: its first step may stretch too
             wl = joint_list(chain[1 + i0:1 + i1], t)
             p = waypoint.problems(base, wl)
@@ -233,10 +265,13 @@ try:
             run(name, wl, 60 + 2 * sum(t))
             continue
         run(name, wl, 60 + 2 * est)
+    if LIGHT:
+        light.off(); print("LIGHT OFF", flush=True)
+        shutter("CLOSE")
     # the way out: back out along the nozzle, rise above the (here imaginary, raised) print, then Home,
     # every pose checked against it first (exit_path.py)
     cur = [a.position for a in cyc.RefreshFeedback().actuators]
-    ex = exit_path.plan_exit(cur, np.array(d["strand"]) + [0, 0, RAISE], d["params"]["table"], None, home)
+    ex = exit_path.plan_exit(cur, np.array(d["strand"]) + [0, 0, RAISE], d["params"]["table"], None, home, light=LIGHT)
     if not ex["ok"]:
         raise SystemExit("Finished the path, but there is no safe way out: %s. The arm is waiting at the end of the path: "
                          "move it clear by hand." % ex["reason"])
@@ -265,6 +300,7 @@ except Exception:
     except Exception: pass
     raise
 finally:
+    if light: light.off()
     if live: live.stop()
     if lock: lock.release()
     sm.CloseSession(); r.SetActivationStatus(False)

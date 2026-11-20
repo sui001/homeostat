@@ -21,13 +21,13 @@ SAMPLE_DEG = 2.0       # joint moves checked every 2 deg
 HOME = (0.0, 15.0, 230.0, 0.0, 55.0, 90.0)
 
 
-def strand_so_far(W, table, upto=None):
+def strand_so_far(W, table, upto=None, light=False):
     """1 mm samples of the strand up to point `upto` (all of it if None), with the post under the anchor,
     and each sample's distance back from the newest end (the hot end may touch the freshest few mm)."""
     W = np.asarray(W, float)
     if upto is not None:
         W = W[: max(1, upto + 1)]
-    if len(W) < 2:
+    if len(W) < 2 or light:               # a light drawing leaves nothing to hit
         return np.zeros((0, 3)), np.zeros(0)
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
     S = np.arange(0, s[-1] + 1e-9, 0.001)
@@ -58,10 +58,10 @@ def nearest_point(W, tip):
     return int(np.argmin(np.linalg.norm(np.asarray(W) - tip, axis=1)))
 
 
-def plan_exit(q_now, W, table, upto=None, home=HOME, back_m=BACK_M):
+def plan_exit(q_now, W, table, upto=None, home=HOME, back_m=BACK_M, light=False):
     """Returns dict(ok, chain, home, worst_mm, what, rise_to, reason). chain = joint poses to go through
     (backing out, then rising), not including q_now; then a joint move to `home`."""
-    dense, back = strand_so_far(W, table, upto)
+    dense, back = strand_so_far(W, table, upto, light)
     q_now = np.asarray(q_now, float)
     F0 = gen3.fk(q_now, plan.TOOL); R0, p0, z = F0[:3, :3], F0[:3, 3], F0[:3, 2]
     chain = []

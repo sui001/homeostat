@@ -109,6 +109,43 @@ def run_exit(base, cyc, ex, label="safe exit"):
     run(base, "%s: to Home" % label, waypoint.build(cur, ex["home"], 20.0, "home"), 90)
 
 
+class WristLight:
+    """A light on one of the wrist's four digital pins (GPIO 1-4 on the bracelet's expansion connector):
+    3.3 V push-pull, so switch the light through a small logic-level MOSFET or transistor. pin 0 = no
+    light wired: on() and off() do nothing."""
+    def __init__(self, router, pin):
+        self.pin, self.ic, self.dev = int(pin), None, None
+        if not self.pin:
+            return
+        from kortex_api.autogen.client_stubs.DeviceManagerClientRpc import DeviceManagerClient
+        from kortex_api.autogen.client_stubs.InterconnectConfigClientRpc import InterconnectConfigClient
+        from kortex_api.autogen.messages import InterconnectConfig_pb2 as IC, Common_pb2
+        self.IC = IC
+        self.dev = [h.device_identifier for h in DeviceManagerClient(router).ReadAllDevices().device_handle
+                    if h.device_type == Common_pb2.INTERCONNECT][0]
+        self.ic = InterconnectConfigClient(router)
+        c = IC.GPIOConfiguration(); c.identifier = self.pin
+        c.mode = IC.GPIO_MODE_OUTPUT_PUSH_PULL; c.pull = IC.GPIO_PULL_NONE; c.default_value = IC.GPIO_VALUE_LOW
+        self.ic.SetGPIOConfiguration(c, self.dev)
+        self.off()
+
+    def _set(self, high):
+        if not self.pin:
+            return
+        st = self.IC.GPIOState(); st.identifier = self.pin
+        st.value = self.IC.GPIO_VALUE_HIGH if high else self.IC.GPIO_VALUE_LOW
+        self.ic.SetGPIOState(st, self.dev)
+
+    def on(self):
+        self._set(True)
+
+    def off(self):
+        try:
+            self._set(False)
+        except Exception as e:
+            print("  could not switch the light off: %s" % str(e)[:80])
+
+
 class Live:
     """Samples the arm 20 times a second: keeps a log of tool positions (for tracking) and writes
     live.json (joints, tool, what it is doing) for the editor's live view."""
