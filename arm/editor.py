@@ -316,6 +316,8 @@ def park_job():
             log("no plan known: backing out and rising anyway, then Home")
         env = {"PARK_RAISE_MM": "%g" % last.get("raise_mm", 0)}
         if stream(args, env):
+            if any("TimeoutError" in l for l in job["log"][-6:]):
+                raise RuntimeError("the arm didn't answer; nothing moved. If it stays silent, support it and power-cycle it")
             raise RuntimeError("no safe way out found from here; nothing moved (see the log)")
         if job["stop"]:
             raise RuntimeError("stopped before moving")

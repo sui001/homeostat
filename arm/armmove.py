@@ -93,17 +93,32 @@ def fit(base, qs, t0, first=1):
     return t, rounds
 
 
+START_WAIT = 30       # s the arm may take to start a trajectory it has been given
+
+
 def run(base, name, wl, timeout):
     """Execute a waypoint list and wait for it. Raises SystemExit on timeout (after Stop) or abort."""
-    done, res = threading.Event(), {}
+    done, started, res = threading.Event(), threading.Event(), {}
 
     def on_event(n):
         ev = Base_pb2.ActionEvent.Name(n.action_event)
+        if ev == "ACTION_START":
+            started.set()
         if ev in ("ACTION_END", "ACTION_ABORT"):
-            res["ev"] = ev; res["n"] = n; done.set()
+            res["ev"] = ev; res["n"] = n; started.set(); done.set()
     h = base.OnNotificationActionTopic(on_event, Base_pb2.NotificationOptions())
     t0 = time.time()
-    base.ExecuteWaypointTrajectory(wl, options=_slow())
+    base.ExecuteWaypointTrajectory(wl)       # the library's own timeout: this is how it ran fine on 2026-11-19
+    # 2026-11-20: the arm took a 454-waypoint list, never started it, and its controller stopped answering
+    # (it needed a power cycle). If it hasn't started in START_WAIT s, stop rather than wait out the run.
+    if not started.wait(START_WAIT):
+        try:
+            base.Stop()
+        except Exception:
+            pass
+        base.Unsubscribe(h)
+        raise SystemExit("The arm accepted %s but didn't start it within %d s. Sent Stop(). If the arm no longer "
+                         "answers, support it, then power-cycle it (it drops when the power goes off)." % (name, START_WAIT))
     ok = done.wait(timeout); base.Unsubscribe(h)
     if not ok:
         base.Stop(); raise SystemExit("TIMED OUT on %s after %.0f s. Sent Stop()." % (name, timeout))
