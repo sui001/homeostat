@@ -132,8 +132,8 @@ def nums(d):
         if not math.isfinite(v):
             raise ValueError("%s is not a number" % k)
     p["preset"] = int(p.get("preset", 0))
-    if not 10 <= p.get("scale", 200) <= 1000:
-        raise ValueError("scale must be 10-1000 mm per 90 deg")
+    if not 10 <= p.get("scale", 200) <= 4000:
+        raise ValueError("scale must be 10-4000 mm per 90 deg")
     return p
 
 

@@ -457,7 +457,7 @@ cv.addEventListener("pointermove", e => {
     if (tt < 1e-6) return;
     P[drag.ring] = wrap180(P[drag.ring] + Math.max(-10, Math.min(10, (dx * t[0] + dy * t[1]) / tt)));
   } else if (drag.mode === "scale") {
-    P.scale = Math.max(10, Math.min(1000, drag.s0 * Math.hypot(m[0] - drag.c[0], m[1] - drag.c[1]) / drag.r0));
+    P.scale = Math.max(10, Math.min(4000, drag.s0 * Math.hypot(m[0] - drag.c[0], m[1] - drag.c[1]) / drag.r0));
   }
   changed({ live: true });
 });
@@ -506,7 +506,7 @@ $("fileIn").onchange = async () => {
 for (const k of FIELDS) $(k).addEventListener("change", () => {
   const v = parseFloat($(k).value);
   if (!isFinite(v)) { syncFields(); return; }
-  P[k] = k === "preset" ? Math.max(0, Math.round(v)) : k === "scale" ? Math.max(10, Math.min(1000, v)) : k === "seconds" ? Math.max(1, v) : k === "from_t" || k === "lift" ? Math.max(0, v) : v;
+  P[k] = k === "preset" ? Math.max(0, Math.round(v)) : k === "scale" ? Math.max(10, Math.min(4000, v)) : k === "seconds" ? Math.max(1, v) : k === "from_t" || k === "lift" ? Math.max(0, v) : v;
   changed({ shape: ["preset", "seconds", "scale", "from_t"].includes(k), reach: k === "table" });
 });
 $("use_sweep").onchange = () => changed();
