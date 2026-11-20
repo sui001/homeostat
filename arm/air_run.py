@@ -195,7 +195,10 @@ try:
     # Steps timed against the joint acceleration limit (51.6 deg/s^2), stretched only where a joint changes
     # speed or direction sharply, from rest and to rest.
     path_signed = [((b_ - a_ + 180) % 360) - 180 for a_, b_ in zip(chain[:-1], chain[1:])]
-    MAX_WP = int(os.environ.get("AIR_MAX_WP", 900))   # the arm refuses a trajectory of more than 1000 waypoints
+    # The arm refuses more than 1000 waypoints, but long before that it gets slow to take a list: it checks
+    # the whole list before replying, ~20 s for 850-900 (2026-11-20), past the API's 10 s wait; given longer,
+    # its controller once hung outright. So parts of at most 150, which it takes in well under a second.
+    MAX_WP = int(os.environ.get("AIR_MAX_WP", 150))
     if FAST == 1 and len(chain) + 1 <= MAX_WP and not LIGHT:
         # one list from Home: joint move to above the start, a short hold, down onto the path, along it, up
         qs = [chain[0]] + chain
@@ -206,7 +209,7 @@ try:
         est = sum(times)
     else:
         # Faster than print speed, or more waypoints than the arm takes in one list: the move out of Home on
-        # its own (it ends at rest), then the path in parts of up to MAX_WP waypoints, each timed and checked
+        # its own (it ends at rest), then the path in parts of up to MAX_WP (150) waypoints, each timed and checked
         # by the arm from where it then stands, just before it runs. (As one list, the arm's curve through the
         # join with the move out of Home overshoots the wrist past its limit at anything faster.)
         path_times = smooth_times(path_signed, dur, ACC)
