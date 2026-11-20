@@ -55,7 +55,7 @@ try:
     cur = [a.position for a in cyc.RefreshFeedback().actuators]
     print("arm reachable; current joints", [round(a, 1) for a in cur])
 
-    ik_bad, clash, worst_dq, worst_tip = [], [], 0.0, 0.0
+    ik_bad, clash, worst_dq, worst_tip, fk_used = [], [], 0.0, 0.0, []
     worst_hot, worst_arm = 1e9, 1e9
     for w in wps:
         if not w["ok"]:
@@ -65,10 +65,15 @@ try:
         for q in w["joints"]:
             ikd.guess.joint_angles.add().value = q
         try:
-            sol = base.ComputeInverseKinematics(ikd)
+            qa = np.array([j.value for j in base.ComputeInverseKinematics(ikd).joint_angles])
         except Exception as e:
-            ik_bad.append((w["i"], str(e).splitlines()[0][:80])); w["arm_ik"] = None; continue
-        qa = np.array([j.value for j in sol.joint_angles])
+            # the arm's IK gives up on some poses it can be in: take the planned joints if the arm's own
+            # forward kinematics puts them where we want
+            ok_fk, mm, deg = gen3.arm_fk_check(base, w["joints"], w.get("tcp", w["tip"]), w["euler"])
+            if not ok_fk:
+                ik_bad.append((w["i"], str(e).splitlines()[0][:60] + "; planned joints are %.1f mm, %.1f deg off" % (mm, deg)))
+                w["arm_ik"] = None; continue
+            qa = np.array(w["joints"], float); fk_used.append(w["i"])
         dq = np.abs(((qa - np.array(w["joints"]) + 180) % 360) - 180).max()
         worst_dq = max(worst_dq, dq); w["arm_ik"] = qa.round(3).tolist()
         # the arm's solution, put back through our model, must land on the tip and clear the strand
@@ -85,6 +90,8 @@ try:
                           round(min(hc) * 1000, 1), round(min(ac) * 1000, 1)))
     ok = [w for w in wps if w["ok"] and w.get("arm_ik") is not None]
     print("IK: %d/%d points solved by the arm; %d refused" % (len(ok), sum(w["ok"] for w in wps), len(ik_bad)))
+    if fk_used:
+        print("    of those, %d the arm's IK gave up on: the planned joints are used, and the arm's own FK puts them on the pose" % len(fk_used))
     print("    arm's joints vs planned joints: worst %.2f deg; arm solution tip vs plan %.1f mm (model error)" % (worst_dq, worst_tip * 1000))
     print("clearance on the arm's own solutions: hot end %.1f mm, arm links %.1f mm (after margins); %d clashes"
           % (worst_hot * 1000, worst_arm * 1000, len(clash)))
@@ -93,8 +100,9 @@ try:
 
     # trajectory validation, as the arm would run it: Cartesian waypoints at print speed
     traj_err = []
-    for k in range(0, len(ok), CHUNK - 1):
-        part = ok[k:k + CHUNK]
+    cart = [w for w in ok if w["i"] not in set(fk_used)]   # Cartesian waypoints go through the arm's IK: only where it solves
+    for k in range(0, len(cart), CHUNK - 1):
+        part = cart[k:k + CHUNK]
         if len(part) < 2: break
         wl = Base_pb2.WaypointList(); wl.use_optimal_blending = False
         for w in part:
@@ -110,7 +118,7 @@ try:
                              round(e.min_value, 3), round(e.max_value, 3), e.index))
     print("ValidateWaypointList (Cartesian, %.0f mm/s): %d chunks, %d errors" % (SPEED * 1000, math.ceil(len(ok) / (CHUNK - 1)), len(traj_err)))
     for e in traj_err[:12]: print("   ", e)
-    d["arm_check"] = dict(ik_refused=ik_bad, clashes=clash, traj_errors=traj_err, worst_dq=worst_dq,
+    d["arm_check"] = dict(fk_confirmed=fk_used, ik_refused=ik_bad, clashes=clash, traj_errors=traj_err, worst_dq=worst_dq,
                           worst_hot_mm=worst_hot * 1000, worst_arm_mm=worst_arm * 1000)
     json.dump(d, open(PLAN.replace(".json", "_checked.json"), "w"))
 finally:

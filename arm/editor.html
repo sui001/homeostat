@@ -315,10 +315,10 @@ async function loadShape() {
 }
 let reachTable = null;
 async function loadReach() {
-  const t = +(+P.table).toFixed(3); if (t === reachTable) return; reachTable = t;
-  $("hint").textContent = "Working out the reach at this table height…";
-  const d = await (await fetch("/api/reach?table=" + t)).json();
-  if (t !== reachTable) return;
+  const t = +(+P.table).toFixed(3), k = t + (P.light ? "L" : ""); if (k === reachTable) return; reachTable = k;
+  $("hint").textContent = P.light ? "Working out the reach for a light pointing any way…" : "Working out the reach at this table height…";
+  const d = await (await fetch("/api/reach?table=" + t + (P.light ? "&light=1" : ""))).json();
+  if (k !== reachTable) return;
   reachMap = d; BANDS = bands(); $("hint").textContent = HINT; render();
 }
 let qTimer = null, qSeq = 0;
@@ -514,7 +514,7 @@ $("show_arm").onchange = () => draw();
 $("light").checked = !!P.light;
 $("light").onchange = () => {
   P.light = $("light").checked;
-  changed({});
+  changed({ reach: true });
 };
 function showTable(t) {
   const rows = t.touches.map((p, i) => `#${i + 1} at ${p.at}: x ${p.tip[0].toFixed(3)} y ${p.tip[1].toFixed(3)} z ${p.tip[2].toFixed(4)} m`);

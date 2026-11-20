@@ -6,6 +6,21 @@ ARM_TCP = 0.200   # the arm's own tool transform (z); the painting rig relies on
 NOZZLE = 0.230    # flange face to nozzle tip along the tool axis, measured 2026-11-18 (hot end held in the gripper)
 
 
+def arm_fk_check(base, q, tcp, euler, pos_tol=0.005, ang_tol=2.0):
+    """The arm's own forward kinematics for joints q (its 0.200 m tool): (ok, mm off, deg off) against the
+    pose we want it at. Its IK gives up on some poses it can be in (tool pointing above horizontal, high
+    up), so where it refuses, our model's joints are used if the arm itself confirms where they put it."""
+    from kortex_api.autogen.messages import Base_pb2
+    ja = Base_pb2.JointAngles()
+    for k, v in enumerate(q):
+        a = ja.joint_angles.add(); a.joint_identifier = k; a.value = float(v)
+    p = base.ComputeForwardKinematics(ja)
+    d_mm = 1000 * float(np.linalg.norm(np.array([p.x, p.y, p.z]) - np.asarray(tcp, float)))
+    Ra, Rw = from_euler(p.theta_x, p.theta_y, p.theta_z), from_euler(*euler)
+    d_deg = float(np.degrees(np.arccos(np.clip((np.trace(Ra.T @ Rw) - 1) / 2, -1, 1))))
+    return d_mm <= pos_tol * 1000 and d_deg <= ang_tol, d_mm, d_deg
+
+
 def arm_tcp(tip, euler, nozzle=NOZZLE):
     """Pose to command the arm (whose TCP is ARM_TCP from the flange) so the nozzle tip lands on `tip`:
     same orientation, (nozzle - ARM_TCP) back up the tool axis."""

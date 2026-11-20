@@ -182,11 +182,11 @@ def placed(p):
     return W, T
 
 
-def reach(table):
-    key = round(table, 3)
+def reach(table, light=False):
+    key = (round(table, 3), bool(light))
     with _reach_lock:
         if key not in _reach:
-            _reach[key] = ec.reach_map(key)
+            _reach[key] = ec.reach_map(key[0], key[1])
         return _reach[key]
 
 
@@ -377,7 +377,7 @@ class H(BaseHTTPRequestHandler):
                 B, T = ec.base_shape(p["preset"], p["seconds"], p["scale"], p["from_t"], path_file=source_file(q.get("source", "")))
                 return self.send(200, dict(base=B.round(5).tolist(), t=T.round(3).tolist(), scale=p["scale"]))
             if u.path == "/api/reach":
-                return self.send(200, reach(float(q.get("table", 0.16))))
+                return self.send(200, reach(float(q.get("table", 0.16)), q.get("light") == "1"))
             if u.path == "/api/sweep":
                 if _sweep["state"] not in ("ok", "loading"):    # armster was slow or away: try again
                     _sweep["state"] = "loading"
@@ -494,6 +494,9 @@ if __name__ == "__main__":
     except Exception:
         pass
     threading.Thread(target=load_sweep, daemon=True).start()
-    threading.Thread(target=reach, args=(0.16,), daemon=True).start()   # warm the default table height
+    def warm():      # the measured table height (else the default), for printing and for light
+        z = json.load(open(TABLE))["z"] if os.path.exists(TABLE) else 0.16
+        reach(z); reach(z, True)
+    threading.Thread(target=warm, daemon=True).start()
     print("layout editor on http://%s:%d%s  (Ctrl-C to stop)" % (host, PORT, ", on the arm" if ON_ARM else ""), flush=True)
     ThreadingHTTPServer((host, PORT), H).serve_forever()

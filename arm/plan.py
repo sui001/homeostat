@@ -276,7 +276,7 @@ def plan(args):
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(W, axis=0), axis=1))]
     # the strand so far (and the post the anchor sits on), or nothing at all when drawing with light
     dense, S = strand_samples(W, args.table, args.light)
-    D = fib_dirs()
+    D = fib_dirs(max_up=1.0) if args.light else fib_dirs()   # a light may point any way, up included
     # 1. every clear direction at every point
     C = np.zeros((len(W), len(D)))
     for i, tip in enumerate(W):

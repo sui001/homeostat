@@ -13,7 +13,9 @@ import plan, wrist
 from homeostat_path import load_path
 
 DIRS = plan.fib_dirs(900)          # the sweep's direction set: down to ~15 deg above horizontal
-R_MAX, Z_MAX, CELL = 1.20, 0.80, 0.01
+DIRS_LIGHT = plan.fib_dirs(900, max_up=1.0)   # a light may point any way, up included
+R_MAX, Z_MAX, CELL = 1.20, 1.15, 0.01
+Z_MAX_LIGHT = 1.45                 # pointing up, the claw tip gets well above where a hot end could
 BASE_R = 0.12                      # the arm's own base and shoulder column: nothing gets printed in there
 
 HOT_R = 0.26                       # strand further than this from the tip cannot touch the hot end (230 mm long)
@@ -40,13 +42,14 @@ def arm_only(tip, D, table):
     return ok
 
 
-def reach_map(table):
-    """Fraction of DIRS the arm can take, on an r x z grid (CELL apart) from the table up."""
-    rs = np.arange(0, R_MAX + 1e-9, CELL); zs = np.arange(table, Z_MAX + 1e-9, CELL)
+def reach_map(table, light=False):
+    """Fraction of the directions the arm can take, on an r x z grid (CELL apart) from the table up."""
+    D = DIRS_LIGHT if light else DIRS
+    rs = np.arange(0, R_MAX + 1e-9, CELL); zs = np.arange(table, (Z_MAX_LIGHT if light else Z_MAX) + 1e-9, CELL)
     M = np.zeros((len(zs), len(rs)))
     for a, z in enumerate(zs):
         for b, r in enumerate(rs):
-            M[a, b] = arm_only(np.array([r, 0.0, z]), DIRS, table).mean()
+            M[a, b] = arm_only(np.array([r, 0.0, z]), D, table).mean()
     return dict(r0=0.0, z0=float(table), cell=CELL, nr=len(rs), nz=len(zs), frac=np.round(M, 3).tolist())
 
 
@@ -77,10 +80,11 @@ def quick_check(W, table, sweep=None, cancel=None, light=False):
         if not in_sweep(tip, sweep):
             status.append(OUTSIDE_SWEEP); free.append(0); continue
         tan = W[min(i + 1, len(W) - 1)] - W[max(i - 1, 0)]; tan /= (np.linalg.norm(tan) or 1)
-        ok = arm_only(tip, DIRS, table) & ((DIRS @ tan <= 0.5) | light)
+        DD = DIRS_LIGHT if light else DIRS
+        ok = arm_only(tip, DD, table) & ((DD @ tan <= 0.5) | light)
         if not ok.any():
             status.append(NO_REACH); free.append(0); continue
-        D = DIRS[ok]; m = S <= s[i] + 1e-9
+        D = DD[ok]; m = S <= s[i] + 1e-9
         P1, back = dense[m], s[i] - S[m]
         near = ((P1 - tip) ** 2).sum(1) < HOT_R ** 2
         C = np.minimum(plan.clearance_all_dirs(D, tip, P1[near], back[near], table),

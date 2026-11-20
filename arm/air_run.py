@@ -26,7 +26,7 @@ import os, sys, json, math, time, threading
 import numpy as np
 sys.path.insert(0, os.path.expanduser("~/kinova"))
 import kenv; kenv.load()
-import armlock, waypoint, gen3, exit_path, armmove
+import armlock, waypoint, gen3, exit_path, armmove, plan
 from armmove import joint_list, smooth_times
 from kortex_api.TCPTransport import TCPTransport
 from kortex_api.RouterClient import RouterClient
@@ -127,6 +127,16 @@ try:
         try:
             return np.array([waypoint.wrap(j.value) for j in base.ComputeInverseKinematics(ikd).joint_angles])
         except Exception as ex:
+            # the arm's IK gives up on some poses it can be in (tool above horizontal, high up): our model's
+            # IK from the same seed, used only if the arm's own FK puts those joints on the pose
+            R = gen3.from_euler(*e); Tt = np.eye(4); Tt[:3, :3] = R; Tt[:3, 3] = pt
+            qm, conv = plan.ik(Tt, np.asarray(seed, float), 200)
+            if conv:
+                qm = np.array([waypoint.wrap(v) for v in qm])
+                ok_fk, mm, deg = gen3.arm_fk_check(base, qm, tcp_of(pt, e), e)
+                if ok_fk:
+                    model_ik[0] += 1
+                    return qm
             sys.exit("The arm has no IK solution at tip %s (raised %.0f mm): %s. Not moving; try a smaller AIR_RAISE_MM."
                      % (np.round(pt, 4).tolist(), RAISE * 1000, str(ex).split("=>")[-1].strip()[:90]))
     def rot_lerp(R0, R1, f):
@@ -139,6 +149,7 @@ try:
     def dstep(a_, b_):
         return np.abs(((b_ - a_ + 180) % 360) - 180)
 
+    model_ik = [0]
     # every pose along the way: above the start, then the path (the way out is the safe exit, below)
     P = [above] + list(tips); E = [eul[0]] + eul
     q = ik(P[0], E[0], wps[0]["joints"]); chain = [q]; seglen = []
@@ -169,6 +180,8 @@ try:
     worst = max(st[:5].max() for st in steps); roll = max(st[5] for st in steps)
     near = min(lim - abs(q[j]) for q in chain for j, lim in LIMITS.items())
     j5min = min(abs(q[4]) for q in chain)
+    if model_ik[0]:
+        print("  %d poses from our model's IK where the arm's gave up, each confirmed by the arm's own FK" % model_ik[0])
     print("IK chain: %d poses, biggest step J1-J5 %.1f deg, J6 %.1f deg, closest to a joint limit %.1f deg, |J5| >= %.1f"
           % (len(chain), worst, roll, near, j5min))
     if worst > MAX_STEP or roll > MAX_ROLL or near < MARGIN:
