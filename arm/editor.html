@@ -127,8 +127,7 @@
       <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
     </div>
     <div id="goBox" hidden style="margin-top:8px;padding:12px;border:2px solid #8a5a00;border-radius:6px;text-align:center">
-      <div style="margin-bottom:8px">The arm is still at the start of the drawing. Switch the light on, the room lights off, then press
-        Continue: <b>start the camera</b> during the countdown that follows, and it draws.</div>
+      <div id="goText" style="margin-bottom:8px"></div>
       <button id="goBtn" style="font-size:22px;padding:10px 40px;background:#2e7d4f;color:#fff;border:0;border-radius:6px">Continue</button>
     </div>
     <div id="shutterCue" hidden style="margin-top:8px;padding:14px;border-radius:6px;background:#1d1e20;color:#fff;font-size:26px;font-weight:700;text-align:center"></div>
@@ -709,13 +708,21 @@ function beep(n, hz) {
 function shutterCue(j, moving) {
   const box = $("shutterCue");
   if (!moving) { box.hidden = true; $("goBox").hidden = true; clearInterval(cueTimer); cueSeen = 0; return; }
-  const cues = j.log.map((l, i) => [l, i]).filter(([l]) => /SHUTTER (OPEN|CLOSE)|LIGHT O(N|FF)|WAITING AT THE START|CONTINUE pressed/.test(l));
+  const cues = j.log.map((l, i) => [l, i]).filter(([l]) => /SHUTTER (OPEN|CLOSE)|LIGHT O(N|FF)|WAITING AT THE (START|END)|CONTINUE pressed/.test(l));
   if (!cues.length) return;
   const [l, i] = cues[cues.length - 1];
   if (i + 1 <= cueSeen) return;
   cueSeen = i + 1; clearInterval(cueTimer); box.hidden = false; $("goBox").hidden = true;
   if (/WAITING AT THE START/.test(l)) {
     box.textContent = "At the start, waiting"; box.style.background = "#8a5a00"; beep(2, 660);
+    $("goText").innerHTML = "The arm is still at the start of the drawing. Switch the light on, the room lights off, then press " +
+      "Continue: <b>start the camera</b> during the countdown that follows, and it draws.";
+    $("goBox").hidden = false; return;
+  }
+  if (/WAITING AT THE END/.test(l)) {
+    box.textContent = "Drawing done: stop the camera"; box.style.background = "#3b6fd6"; beep(2, 440);
+    $("goText").innerHTML = "The drawing is finished and the arm is holding still at its end. <b>Stop the camera</b>, then press " +
+      "Continue: the arm leaves the safe way and goes Home.";
     $("goBox").hidden = false; return;
   }
   if (/CONTINUE pressed/.test(l)) { box.textContent = "Going on…"; box.style.background = "#8a5a00"; return; }
@@ -781,7 +788,7 @@ $("airrun").onclick = () => {
     return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b>${tt ? ` The drawing takes about <b>${mins(tt.s)}</b>.` : ""} From Home down to the start of ${r.name}, ` +
                `and <b>waits there until you press Continue</b> (two beeps): switch the light on and the room lights off meanwhile. ` +
                `After Continue it counts down ${hold} s: <b>start the camera</b> (three high beeps). ` +
-               `${pin ? `The light on wrist pin ${pin} comes on and ` : ""}it draws the path, ${pin ? "the light goes off, " : ""}then waits ${hold} s: <b>stop the camera</b> (two low beeps). Then it leaves the safe way and goes Home. ` +
+               `${pin ? `The light on wrist pin ${pin} comes on and ` : ""}it draws the path, ${pin ? "the light goes off, " : ""}then <b>waits again until you press Continue</b> (two low beeps): <b>stop the camera</b> first. Then it leaves the safe way and goes Home. ` +
                `Keep this page in front: the countdown shows here. Stand at the arm with the e-stop in reach.`,
                () => { audio = audio || new AudioContext(); audio.resume(); beep(1, 660);
                        postJob("/api/airrun", { name: r.name, raise_mm: 0, fast, light_pin: pin, hold_s: hold }); });

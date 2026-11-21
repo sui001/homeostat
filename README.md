@@ -41,8 +41,8 @@ path tops out below the speed asked for). Nothing is left behind, so the planner
 table: paths can cross themselves and planning takes seconds instead of minutes. The run (**Draw with
 light…**) goes down onto the start and **waits there until you press Continue** on the page (two beeps): set
 the light, the room and the camera meanwhile. Continue starts a countdown (**Camera countdown**, 5 s, three high
-beeps: start the camera), then it draws; at the end it waits the countdown again (two low beeps: stop the
-camera), then leaves the safe way. Nobody pressing Continue for 30 min ends the run where it stands.
+beeps: start the camera), then it draws; at the end it holds still and waits for Continue again (two low
+beeps: stop the camera first), then leaves the safe way. Nobody pressing Continue for 30 min ends the run where it stands.
 
 The light is switched on one of the wrist's four digital pins (GPIO 1-4 on the bracelet's expansion
 connector, 3.3 V): drive the light through a small logic-level MOSFET or transistor, not from the pin

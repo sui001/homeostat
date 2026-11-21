@@ -295,13 +295,13 @@ try:
         live.what = name
         armmove.run(base, name, wl, timeout)
 
-    def wait_go():
-        """At the start, standing still: wait for Continue in the editor (the light, the room lights, the
-        camera are set by hand meanwhile). Keeps the session busy so the arm doesn't drop it."""
+    def wait_go(where="START"):
+        """Standing still at the start or the end: wait for Continue in the editor (the light, the room
+        lights, the camera are set by hand meanwhile). Keeps the session busy so the arm doesn't drop it."""
         if not GO_FILE:
-            return
-        print("WAITING AT THE START: press Continue in the editor when ready", flush=True)
-        live.what = "waiting at the start for Continue"
+            return False
+        print("WAITING AT THE %s: press Continue in the editor when ready" % where, flush=True)
+        live.what = "waiting at the %s for Continue" % where.lower()
         t0 = time.time(); ping = t0
         while not os.path.exists(GO_FILE):
             if time.time() - t0 > GO_WAIT_MAX:
@@ -314,6 +314,7 @@ try:
         except OSError:
             pass
         print("CONTINUE pressed", flush=True)
+        return True
 
     def shutter(word, then=None):
         """A pause for the camera: the editor beeps and counts down on the SHUTTER line."""
@@ -366,7 +367,8 @@ try:
         print("  drawing done: joints kept within %.2f deg of the plan" % worst, flush=True)
     if LIGHT:
         light.off(); print("LIGHT OFF", flush=True)
-        shutter("CLOSE")
+        if not wait_go("END"):          # stop the camera, then Continue: the arm stays put until then
+            shutter("CLOSE")
     # the way out: back out along the nozzle, rise above the (here imaginary, raised) print, then Home,
     # every pose checked against it first (exit_path.py)
     cur = [a.position for a in cyc.RefreshFeedback().actuators]
