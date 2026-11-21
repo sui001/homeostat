@@ -32,6 +32,13 @@ anything moves. A direct swing to Home from the spiral would put the hot end's d
 While anything moves, Stop is pinned to the top of the page (Esc or Space too), and the arm is drawn
 live from its joint angles.
 
+### Gripper
+
+**Open…** and **Slow close…** (under Park) work the gripper, after a confirm. Open drops whatever it holds.
+Slow close moves the fingers at the chosen speed until they meet something, then the gripper holds it
+with its own grip force: the object's size doesn't change the squeeze, and closing slowly only softens
+the first touch. Stop halts the fingers where they are. `gripper.py` does it.
+
 ### Light drawing
 
 Tick **Light drawing** to plan a path for a light carried by the arm, photographed in one long
@@ -66,6 +73,7 @@ different trajectory. At scale S it is about 2 S mm across. `attractors.py` does
 | `homeostat.html` | The homeostat simulator; Send to the arm passes its path to the editor |
 | `exit_path.py`, `safe_park.py` | The checked way out of a print, and Park built on it |
 | `armmove.py` | Running joint waypoint lists, timing fitted to the arm, the live feed |
+| `gripper.py` | Opens the gripper, or closes it slowly until it meets something |
 | `arm_stop.py` | Sends the arm Stop (the editor's Stop button) |
 | `make_viewer.py`, `viewer_template.html` | One-page 3-D viewer for a plan |
 | `gen3.py`, `wrist.py` | Arm kinematics (calibrated against the arm) and quick wrist estimates |

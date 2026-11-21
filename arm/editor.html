@@ -122,6 +122,13 @@
       <button id="airrun">Air-run…</button>
       <button id="park">Park at Home…</button>
     </div>
+    <div class="row" style="align-items:flex-end;margin-top:6px">
+      <span class="muted" style="font-size:12px;align-self:center">Gripper</span>
+      <button id="gripOpen">Open…</button>
+      <label style="width:150px">Close speed<select id="gripSpeed" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
+        <option value="0.1">slow</option><option value="0.05" selected>slower</option><option value="0.02">very slow</option></select></label>
+      <button id="gripClose">Slow close…</button>
+    </div>
     <div id="confirmBox" class="confirm" hidden>
       <div id="confirmText"></div>
       <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
@@ -684,14 +691,16 @@ function renderJob(j) {
   shutterCue(j, moving);
   $("airrun").disabled = running || !ready;
   $("park").disabled = running;
+  $("gripOpen").disabled = $("gripClose").disabled = running;
   $("stopArm").hidden = !moving; armMoving = moving;
   if (moving) $("confirmBox").hidden = true;
   $("runNote").textContent =
-    moving ? (j.kind === "park" ? "Parking at Home…" : j.log.some(l => l.includes("MOVING THE ARM")) ? "The arm is moving." : "Asking the arm whether it can run this (no motion yet)…") :
+    moving ? (j.kind === "park" ? "Parking at Home…" : j.kind === "grip" ? "The gripper is moving…" : j.log.some(l => l.includes("MOVING THE ARM")) ? "The arm is moving." : "Asking the arm whether it can run this (no motion yet)…") :
     j.kind === "airrun" && j.state === "failed" ? "The air-run didn't happen or didn't finish: " + (([...j.log].reverse().find(l => l.includes("FAILED: ")) || "").split("FAILED: ")[1] || "see the log.") :
     j.kind === "airrun" && j.state === "done" ? "Air-run finished; the arm is back at Home." :
     j.kind === "park" && j.state === "failed" ? "Parking didn't finish: see the log." :
     j.kind === "park" && j.state === "done" ? "Parked at Home." :
+    j.kind === "grip" ? ((([...j.log].reverse().find(l => l.includes("fingers stopped") || l.includes("FAILED: ")) || "Gripper: see the log.").trim())) :
     ready ? `Ready to air-run ${r.name}. The arm has to start at Home.` :
     "Plan and check this placement on the arm first; the air-run follows that checked plan.";
 }
@@ -738,7 +747,7 @@ function shutterCue(j, moving) {
   };
   tick(); cueTimer = setInterval(tick, 200);
 }
-function ask(html, action) { $("confirmText").innerHTML = html; $("confirmBox").hidden = false; pendingAction = action; }
+function ask(html, action, go) { $("confirmText").innerHTML = html; $("confirmGo").textContent = go || "Move the arm"; $("confirmBox").hidden = false; pendingAction = action; }
 $("goBtn").onclick = async () => {
   audio = audio || new AudioContext(); audio.resume();
   $("goBtn").disabled = true;
@@ -800,6 +809,11 @@ $("airrun").onclick = () => {
 $("park").onclick = () => ask(`<b>The arm will move</b> to Home the safe way: back out along the nozzle, rise above the print, then Home. ` +
                               `The way out is checked against the last plan run before anything moves; if it isn't clear, nothing moves.`,
                               () => postJob("/api/park", {}));
+$("gripOpen").onclick = () => ask(`<b>The gripper will open.</b> Whatever it is holding (the light, the hot end) <b>will drop</b>: hold it first.`,
+                                  () => postJob("/api/grip", { action: "open", speed: 0.3 }), "Open the gripper");
+$("gripClose").onclick = () => ask(`<b>The gripper will close slowly</b> until it meets something, then keep squeezing it with its full grip force. ` +
+                                   `Keep fingers out. Stop (Esc or Space) halts the fingers where they are.`,
+                                   () => postJob("/api/grip", { action: "close", speed: +$("gripSpeed").value }), "Close the gripper");
 $("stopArm").onclick = stopNow;
 
 // ------------------------------------------------------------------ start

@@ -382,6 +382,18 @@ def park_job():
         log("FAILED: %s" % e); job["state"] = "failed"
 
 
+def grip_job(action, speed):
+    try:
+        rc = stream([sys.executable, "-u", "gripper.py", action, "%g" % speed], {"KINOVA_CONFIRM": "yes"})
+        if job["stop"]:
+            raise RuntimeError("stopped")
+        if rc:
+            raise RuntimeError("gripper.py exited %d" % rc)
+        job["state"] = "done"
+    except Exception as e:
+        log("FAILED: %s" % e); job["state"] = "failed"
+
+
 def stop_arm():
     job["stop"] = True
     log("STOP pressed")
@@ -474,6 +486,14 @@ class H(BaseHTTPRequestHandler):
                     return self.send(409, {"error": "nothing is waiting"})
                 open(GO_FILE, "w").close()
                 return self.send(200, {"ok": True})
+            if u.path == "/api/grip":
+                if not ON_ARM:
+                    return self.send(400, {"error": "the gripper can only be worked from the editor on armster"})
+                action, speed = str(body.get("action", "")), float(body.get("speed", 0.05))
+                if action not in ("open", "close") or not (0.01 <= speed <= 1):
+                    return self.send(400, {"error": "action must be open or close, speed 0.01-1"})
+                ok = start_job("grip", grip_job, (action, speed))
+                return self.send(200 if ok else 409, {"started": ok} if ok else {"error": "busy: wait for the job running now"})
             if u.path in ("/api/airrun", "/api/park"):
                 if not ON_ARM:
                     return self.send(400, {"error": "the arm can only be moved from the editor on armster"})
