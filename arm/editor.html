@@ -458,7 +458,7 @@ cv.addEventListener("pointermove", e => {
   const dx = m[0] - drag.x, dy = m[1] - drag.y; drag.x = m[0]; drag.y = m[1];
   if (!dx && !dy) return;
   if (drag.mode === "orbit" || drag.mode === "pan") drag.viewed = true;
-  if (drag.mode === "orbit") { cam.yaw -= dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
+  if (drag.mode === "orbit") { cam.yaw += dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
   if (drag.mode === "pan") {        // slide the view: the scene follows the pointer
     const k = 1100 * cam.zoom / 3, cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
     const right = [cy, -sy, 0], up = [sp * sy, sp * cy, cp];
