@@ -22,6 +22,9 @@ painting rig's working sweep. The quick check is optimistic; **Plan** runs the r
 asks the arm's own IK about every 10th point (and around any big joint step); `ARM_CHECK_EVERY=1` checks them all. Results land in `arm/plans/` (on
 armster: `~/homeostat-arm/arm/plans`, not in git) with a viewer page each.
 
+**Past plans** (top of Path) lists every checked plan, newest first: **Load** puts one back on screen as the
+current result, ready to run again without planning it again.
+
 ### Air-run, Park and the live arm
 
 On armster the editor can also move the arm, after a confirm on the page: **Air-run** follows a
