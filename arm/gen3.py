@@ -13,8 +13,17 @@ def arm_fk_check(base, q, tcp, euler, pos_tol=0.005, ang_tol=2.0):
     from kortex_api.autogen.messages import Base_pb2
     ja = Base_pb2.JointAngles()
     for k, v in enumerate(q):
-        a = ja.joint_angles.add(); a.joint_identifier = k; a.value = float(v)
-    p = base.ComputeForwardKinematics(ja)
+        # wrapped into 0..360: the arm's FK refuses some of the same angles written otherwise ("Sending request
+        # for forward kinematics calculations failed", e.g. [94.8, 7.1, 289.2, 177.5, 103.0, 6.1], 2026-11-21)
+        a = ja.joint_angles.add(); a.joint_identifier = k; a.value = float(v) % 360.0
+    p = None
+    for attempt in range(3):
+        try:
+            p = base.ComputeForwardKinematics(ja); break
+        except Exception:
+            if attempt == 2:
+                return False, float("inf"), float("inf")   # no answer from the arm: not confirmed
+            import time; time.sleep(0.2)
     d_mm = 1000 * float(np.linalg.norm(np.array([p.x, p.y, p.z]) - np.asarray(tcp, float)))
     Ra, Rw = from_euler(p.theta_x, p.theta_y, p.theta_z), from_euler(*euler)
     d_deg = float(np.degrees(np.arccos(np.clip((np.trace(Ra.T @ Rw) - 1) / 2, -1, 1))))
