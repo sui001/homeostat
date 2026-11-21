@@ -317,11 +317,16 @@ def stream(cmd, env_extra, cwd=HERE):
         _proc[0] = None
 
 
+GO_FILE = os.path.join(PLANS, ".continue")   # the Continue button: a light drawing waiting at its start goes on
+
+
 def airrun_job(name, raise_mm, fast=1.0, light_pin=0, hold_s=5.0):
     try:
         path = os.path.join("plans", name + "_checked.json")
         env = {"AIR_RAISE_MM": "%g" % raise_mm, "AIR_FAST": "%g" % fast,
-               "AIR_LIGHT_PIN": "%d" % light_pin, "AIR_LIGHT_HOLD_S": "%g" % hold_s}
+               "AIR_LIGHT_PIN": "%d" % light_pin, "AIR_LIGHT_HOLD_S": "%g" % hold_s, "AIR_GO_FILE": GO_FILE}
+        if os.path.exists(GO_FILE):
+            os.remove(GO_FILE)            # a Continue left over from an earlier run must not start this one
         log("asking the arm whether it can run this, raised %g mm, %s (no motion)" % (raise_mm, "print speed" if fast == 1 else "%g x faster" % fast))
         if stream([sys.executable, "-u", "air_run.py", path], env):
             if any("no IK solution" in l for l in job["log"][-4:]):
@@ -460,6 +465,11 @@ class H(BaseHTTPRequestHandler):
                     return self.send(400, {"error": "Stop works on armster only"})
                 stop_arm()
                 return self.send(200, {"stopped": True})
+            if u.path == "/api/continue":
+                if not (job["state"] == "running" and job["kind"] == "airrun"):
+                    return self.send(409, {"error": "nothing is waiting"})
+                open(GO_FILE, "w").close()
+                return self.send(200, {"ok": True})
             if u.path in ("/api/airrun", "/api/park"):
                 if not ON_ARM:
                     return self.send(400, {"error": "the arm can only be moved from the editor on armster"})

@@ -52,6 +52,10 @@ if LIGHT:
     RAISE = 0.0          # a light drawing runs where it was planned: there's nothing to keep the claw off
 LIGHT_PIN = int(os.environ.get("AIR_LIGHT_PIN", 0)) if LIGHT else 0
 HOLD = float(os.environ.get("AIR_LIGHT_HOLD_S", 5)) if LIGHT else 0.0
+# light drawings: at the start, wait until this file appears (the editor's Continue button makes it), then
+# count down HOLD s and draw. Unset: no waiting, just the HOLD countdown.
+GO_FILE = os.environ.get("AIR_GO_FILE", "") if LIGHT else ""
+GO_WAIT_MAX = 1800.0     # s at the start before giving up and leaving
 if not 0 <= LIGHT_PIN <= 4:
     sys.exit("AIR_LIGHT_PIN must be 0 (no light wired) or a wrist pin, 1 to 4.")
 wps = [w for w in d["waypoints"] if w["ok"]]
@@ -291,6 +295,26 @@ try:
         live.what = name
         armmove.run(base, name, wl, timeout)
 
+    def wait_go():
+        """At the start, standing still: wait for Continue in the editor (the light, the room lights, the
+        camera are set by hand meanwhile). Keeps the session busy so the arm doesn't drop it."""
+        if not GO_FILE:
+            return
+        print("WAITING AT THE START: press Continue in the editor when ready", flush=True)
+        live.what = "waiting at the start for Continue"
+        t0 = time.time(); ping = t0
+        while not os.path.exists(GO_FILE):
+            if time.time() - t0 > GO_WAIT_MAX:
+                raise SystemExit("Nobody pressed Continue for %.0f min. Park the arm at Home." % (GO_WAIT_MAX / 60))
+            if time.time() - ping > 5:
+                base.GetArmState(); ping = time.time()
+            time.sleep(0.2)
+        try:
+            os.remove(GO_FILE)
+        except OSError:
+            pass
+        print("CONTINUE pressed", flush=True)
+
     def shutter(word, then=None):
         """A pause for the camera: the editor beeps and counts down on the SHUTTER line."""
         print("SHUTTER %s: %.0f s" % (word, HOLD), flush=True)
@@ -317,13 +341,13 @@ try:
             print("  %s: timing fitted in %d round(s), %.0f s" % (name, rounds, sum(t)), flush=True)
             if lit_part:
                 if i0 == k0:          # checked and ready at the start: now the camera
-                    shutter("OPEN")
+                    wait_go(); shutter("OPEN")
                 light.on(); print("LIGHT ON", flush=True)
             run(name, wl, 60 + 2 * sum(t))
             continue
         run(name, wl, 60 + 2 * est)
     if STREAM:
-        shutter("OPEN")
+        wait_go(); shutter("OPEN")
         light.on(); print("LIGHT ON", flush=True)
         live.what = "drawing (streamed)"
         last = [0.0]; nfb = [0]

@@ -118,13 +118,18 @@
         <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option><option value="6" class="lightOnly">6× faster</option><option value="8" class="lightOnly">8× faster</option></select></label>
       <label id="lightOpts1" hidden style="width:150px">Light switched on<select id="light_pin" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
         <option value="0">not switched (always on)</option><option value="1">wrist pin 1</option><option value="2">wrist pin 2</option><option value="3">wrist pin 3</option><option value="4">wrist pin 4</option></select></label>
-      <label id="lightOpts2" hidden style="width:120px">Shutter pause (s)<input type="number" id="hold_s" value="5" min="0" max="60" step="1"></label>
+      <label id="lightOpts2" hidden style="width:120px">Camera countdown (s)<input type="number" id="hold_s" value="5" min="0" max="60" step="1"></label>
       <button id="airrun">Air-run…</button>
       <button id="park">Park at Home…</button>
     </div>
     <div id="confirmBox" class="confirm" hidden>
       <div id="confirmText"></div>
       <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
+    </div>
+    <div id="goBox" hidden style="margin-top:8px;padding:12px;border:2px solid #8a5a00;border-radius:6px;text-align:center">
+      <div style="margin-bottom:8px">The arm is still at the start of the drawing. Switch the light on, the room lights off, then press
+        Continue: <b>start the camera</b> during the countdown that follows, and it draws.</div>
+      <button id="goBtn" style="font-size:22px;padding:10px 40px;background:#2e7d4f;color:#fff;border:0;border-radius:6px">Continue</button>
     </div>
     <div id="shutterCue" hidden style="margin-top:8px;padding:14px;border-radius:6px;background:#1d1e20;color:#fff;font-size:26px;font-weight:700;text-align:center"></div>
     <div id="fastNote" class="muted" style="font-size:12px;margin-top:6px"></div>
@@ -703,12 +708,17 @@ function beep(n, hz) {
 }
 function shutterCue(j, moving) {
   const box = $("shutterCue");
-  if (!moving) { box.hidden = true; clearInterval(cueTimer); cueSeen = 0; return; }
-  const cues = j.log.map((l, i) => [l, i]).filter(([l]) => /SHUTTER (OPEN|CLOSE)|LIGHT O(N|FF)/.test(l));
+  if (!moving) { box.hidden = true; $("goBox").hidden = true; clearInterval(cueTimer); cueSeen = 0; return; }
+  const cues = j.log.map((l, i) => [l, i]).filter(([l]) => /SHUTTER (OPEN|CLOSE)|LIGHT O(N|FF)|WAITING AT THE START|CONTINUE pressed/.test(l));
   if (!cues.length) return;
   const [l, i] = cues[cues.length - 1];
   if (i + 1 <= cueSeen) return;
-  cueSeen = i + 1; clearInterval(cueTimer); box.hidden = false;
+  cueSeen = i + 1; clearInterval(cueTimer); box.hidden = false; $("goBox").hidden = true;
+  if (/WAITING AT THE START/.test(l)) {
+    box.textContent = "At the start, waiting"; box.style.background = "#8a5a00"; beep(2, 660);
+    $("goBox").hidden = false; return;
+  }
+  if (/CONTINUE pressed/.test(l)) { box.textContent = "Going on…"; box.style.background = "#8a5a00"; return; }
   if (/LIGHT ON/.test(l)) { box.textContent = "Drawing: light on"; box.style.background = "#2e7d4f"; beep(1, 660); return; }
   if (/LIGHT OFF/.test(l)) { box.textContent = "Light off"; box.style.background = "#1d1e20"; return; }
   const open = /OPEN/.test(l), secs = parseFloat((l.match(/: ([\d.]+) s/) || [0, 5])[1]), t0 = Date.now();
@@ -716,12 +726,18 @@ function shutterCue(j, moving) {
   beep(open ? 3 : 2, open ? 880 : 440);
   const tick = () => {
     const left = Math.max(0, Math.ceil(secs - (Date.now() - t0) / 1000));
-    box.textContent = (open ? "Open the shutter now" : "Close the shutter now") + (left ? ` · ${left}` : "");
+    box.textContent = (open ? "Start the camera now" : "Stop the camera now") + (left ? ` · ${left}` : "");
     if (!left) clearInterval(cueTimer);
   };
   tick(); cueTimer = setInterval(tick, 200);
 }
 function ask(html, action) { $("confirmText").innerHTML = html; $("confirmBox").hidden = false; pendingAction = action; }
+$("goBtn").onclick = async () => {
+  audio = audio || new AudioContext(); audio.resume();
+  $("goBtn").disabled = true;
+  try { const r = await fetch("/api/continue", { method: "POST", body: "{}" }); if (!r.ok) $("runNote").textContent = (await r.json()).error; }
+  finally { setTimeout(() => { $("goBtn").disabled = false; }, 1500); }
+};
 $("confirmCancel").onclick = () => { $("confirmBox").hidden = true; pendingAction = null; };
 $("confirmGo").onclick = () => { $("confirmBox").hidden = true; const a = pendingAction; pendingAction = null; if (a) a(); };
 async function postJob(url, b) {
@@ -760,12 +776,12 @@ $("airrun").onclick = () => {
   const fast = +$("fast").value;
   if (r.params && r.params.light) {
     const pin = +$("light_pin").value, hold = parseFloat($("hold_s").value);
-    if (!(hold >= 0 && hold <= 60)) { $("runNote").textContent = "The shutter pause has to be 0 to 60 s."; return; }
+    if (!(hold >= 0 && hold <= 60)) { $("runNote").textContent = "The camera countdown has to be 0 to 60 s."; return; }
     const tt = times && times.name === r.name && times.times[fast];
     return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b>${tt ? ` The drawing takes about <b>${mins(tt.s)}</b>.` : ""} From Home down to the start of ${r.name}, ` +
-               `checks the drawing with the arm (that can take up to a minute), then it waits ${hold} s: <b>open the shutter</b> (three high beeps). ` +
-               `${pin ? `The light on wrist pin ${pin} comes on` : "The light isn't switched by the arm, so it shows on the way in and out too"}; ` +
-               `it draws the path, ${pin ? "the light goes off, " : ""}and waits ${hold} s again: <b>close the shutter</b> (two low beeps). Then it leaves the safe way and goes Home. ` +
+               `and <b>waits there until you press Continue</b> (two beeps): switch the light on and the room lights off meanwhile. ` +
+               `After Continue it counts down ${hold} s: <b>start the camera</b> (three high beeps). ` +
+               `${pin ? `The light on wrist pin ${pin} comes on and ` : ""}it draws the path, ${pin ? "the light goes off, " : ""}then waits ${hold} s: <b>stop the camera</b> (two low beeps). Then it leaves the safe way and goes Home. ` +
                `Keep this page in front: the countdown shows here. Stand at the arm with the e-stop in reach.`,
                () => { audio = audio || new AudioContext(); audio.resume(); beep(1, 660);
                        postJob("/api/airrun", { name: r.name, raise_mm: 0, fast, light_pin: pin, hold_s: hold }); });

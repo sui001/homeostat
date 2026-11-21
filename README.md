@@ -39,9 +39,10 @@ exposure. **Raise off the table** (or Shift-drag) lifts the drawing into the air
 long the drawing takes at each speed (worked out from the plan's joints the way the run times it; a curvy
 path tops out below the speed asked for). Nothing is left behind, so the planner only keeps to the arm's reach, its joint limits and the
 table: paths can cross themselves and planning takes seconds instead of minutes. The run (**Draw with
-light…**) goes down onto the start dark, waits while you open the shutter (three high beeps and a
-countdown on the page), switches the light on along the path only, off at the end, waits while you close
-the shutter (two low beeps), then leaves the safe way.
+light…**) goes down onto the start and **waits there until you press Continue** on the page (two beeps): set
+the light, the room and the camera meanwhile. Continue starts a countdown (**Camera countdown**, 5 s, three high
+beeps: start the camera), then it draws; at the end it waits the countdown again (two low beeps: stop the
+camera), then leaves the safe way. Nobody pressing Continue for 30 min ends the run where it stands.
 
 The light is switched on one of the wrist's four digital pins (GPIO 1-4 on the bracelet's expansion
 connector, 3.3 V): drive the light through a small logic-level MOSFET or transistor, not from the pin
