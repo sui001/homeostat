@@ -210,6 +210,44 @@ def make_attractor(body):
     return name
 
 
+_plan_info = {}      # name -> (mtime, summary): plan files run to tens of MB, so each is read once
+
+
+def plan_summary(name):
+    """What a checked plan was: its editor parameters and how it came out (for Past plans)."""
+    f = os.path.join(PLANS, name + "_checked.json")
+    mt = os.path.getmtime(f)
+    if name in _plan_info and _plan_info[name][0] == mt:
+        return _plan_info[name][1]
+    d = json.load(open(f)); a = d["params"]; c = d.get("arm_check") or {}
+    pf = a.get("path_file") or ""
+    src = os.path.splitext(os.path.basename(pf))[0] if pf else ""
+    params = dict(preset=a["preset"], seconds=a["seconds"], scale=a["scale"], from_t=a["from_t"], x=a["x"], y=a["y"],
+                  table=a["table"], lift=a["lift"], yaw=a["yaw"], roll=a["roll"], pitch=a["pitch"],
+                  light=bool(a.get("light")), source=src, path_file=os.path.join(HERE, pf) if pf else "")
+    check = dict(ik_refused=len(c.get("ik_refused", [])), clashes=len(c.get("clashes", [])),
+                 traj_errors=len(c.get("traj_errors", [])), worst_dq=round(c.get("worst_dq", 0), 2))
+    out = dict(name=name, viewer="/plans/%s.html" % name, printable_mm=d["printable_mm"], total_mm=d["total_mm"],
+               fails=d["fails"], points=len(d["waypoints"]), check=check, params=params, checked=True,
+               clear=not (check["ik_refused"] + check["clashes"] + check["traj_errors"]),
+               source_ok=not pf or os.path.exists(os.path.join(HERE, pf)))
+    _plan_info[name] = (mt, out)
+    return out
+
+
+def list_plans(limit=40):
+    names = sorted((f[:-len("_checked.json")] for f in os.listdir(PLANS) if re.fullmatch(r"layout-[0-9-]+_checked\.json", f)), reverse=True)
+    out = []
+    for n in names[:limit]:
+        try:
+            s = plan_summary(n)
+            out.append({k: s[k] for k in ("name", "total_mm", "clear", "source_ok")} | dict(
+                light=s["params"]["light"], source=s["params"]["source"], from_t=s["params"]["from_t"], scale=s["params"]["scale"]))
+        except Exception:
+            pass
+    return out
+
+
 def list_imports():
     out = []
     if os.path.isdir(IMPORTS):
@@ -433,6 +471,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, open(os.path.join(HERE, "editor.html"), "rb").read(), "text/html; charset=utf-8")
             if u.path in ("/sim", "/sim/"):
                 return self.send(200, open(os.path.join(HERE, "homeostat.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path == "/api/plans":
+                return self.send(200, list_plans())
             if u.path == "/api/runtimes":
                 name = q.get("name", "")
                 if not re.fullmatch(r"layout-[0-9-]+", name):
@@ -481,6 +521,20 @@ class H(BaseHTTPRequestHandler):
                     return self.send(400, {"error": "Stop works on armster only"})
                 stop_arm()
                 return self.send(200, {"stopped": True})
+            if u.path == "/api/loadplan":
+                name = str(body.get("name", ""))
+                if not re.fullmatch(r"layout-[0-9-]+", name) or not os.path.exists(os.path.join(PLANS, name + "_checked.json")):
+                    return self.send(400, {"error": "no checked plan called %s" % name})
+                with _job_lock:
+                    if job["state"] == "running":
+                        return self.send(409, {"error": "busy: wait for the plan or run to finish"})
+                    s = plan_summary(name)
+                    if not s["source_ok"]:
+                        return self.send(400, {"error": "its path file is gone, so the editor can't show it"})
+                    res = {k: v for k, v in s.items() if k not in ("clear", "source_ok")}
+                    job.update(state="idle", kind=None, log=["loaded %s from Past plans: planned and checked, ready to run" % name], result=res)
+                    json.dump(res, open(LAST_RESULT, "w"))
+                return self.send(200, res)
             if u.path == "/api/continue":
                 if not (job["state"] == "running" and job["kind"] == "airrun"):
                     return self.send(409, {"error": "nothing is waiting"})

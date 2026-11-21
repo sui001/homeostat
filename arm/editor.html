@@ -42,6 +42,11 @@
   <div class="muted" style="font-size:12px">Homeostat strand on the Kinova Gen3. Nothing here moves the arm.</div>
 
   <h2>Path</h2>
+  <div class="row" style="margin:0 0 8px;align-items:flex-end">
+    <label style="flex:1">Past plans (planned and checked: load one to run it again)<select id="pastPlans" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
+    <button type="button" id="pastLoad">Load</button>
+  </div>
+  <div id="pastNote" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>
   <label>Path from<select id="source" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
   <div class="row" style="margin:6px 0 8px">
     <a href="/sim" target="_blank" rel="noopener"><button type="button">Open the simulator</button></a>
@@ -525,6 +530,34 @@ $("source").onchange = () => {
   if (imp && P.from_t >= imp.t_end) P.from_t = 0;          // otherwise nothing would be left
   sourceUi(); changed({ shape: true });
 };
+// Past plans: any checked plan back on screen with its result, ready to run without planning again
+async function loadPast() {
+  try {
+    const L = await (await fetch("/api/plans")).json();
+    const when = n => { const m = n.match(/layout-(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/); return m ? `${+m[3]} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m[2] - 1]} ${m[4]}:${m[5]}` : n; };
+    const what = p => p.source.startsWith("att-") ? "attractor" : p.source.startsWith("sim-") ? `simulator path from t ${p.from_t}` : `built-in model from t ${p.from_t}`;
+    const keep = $("pastPlans").value;
+    $("pastPlans").innerHTML = L.length ? L.map(p => `<option value="${p.name}"${p.source_ok ? "" : " disabled"}>${when(p.name)} · ${what(p)} · ${(p.total_mm / 1000).toFixed(1)} m` +
+      `${p.light ? " · light" : ""} · ${p.clear ? "all clear" : "had problems"}${p.source_ok ? "" : " · path file gone"}</option>`).join("") : `<option value="">none yet</option>`;
+    if (keep && L.some(p => p.name === keep)) $("pastPlans").value = keep;
+  } catch (e) { $("pastNote").textContent = "Couldn't list past plans: " + e.message; }
+}
+$("pastLoad").onclick = async () => {
+  const name = $("pastPlans").value; if (!name) return;
+  $("pastNote").textContent = "Loading…";
+  try {
+    const r = await fetch("/api/loadplan", { method: "POST", body: JSON.stringify({ name }) }), d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    const q = d.params;
+    for (const k of FIELDS) if (q[k] !== undefined) P[k] = k === "lift" ? Math.round(q[k] * 1000) : q[k];
+    P.light = !!q.light; $("light").checked = P.light;
+    await loadSources(q.source || "");
+    syncFields(); changed({ shape: true, reach: true }); pollJob();
+    $("pastNote").textContent = `${name} is loaded and is the current result: Draw it again from below, no planning needed.`;
+  } catch (e) { $("pastNote").textContent = "Couldn't load it: " + e.message; }
+};
+loadPast(); setInterval(loadPast, 60000);
+
 let ATT = [];
 fetch("/api/attractors").then(r => r.json()).then(a => {
   ATT = a; $("attKind").innerHTML = a.map(x => `<option value="${x.kind}">${x.label}</option>`).join("");
