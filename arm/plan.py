@@ -366,7 +366,8 @@ def plan(args):
         banned[max(0, bad - 2): bad + 3, near] = True
     for i in range(len(out), len(W)):
         out.append(dict(i=i, tip=W[i].round(5).tolist(), ok=False))
-    return dict(params=dict(vars(args), nozzle=gen3.NOZZLE), strand=W.round(5).tolist(), waypoints=out, fails=len(W) - sum(w["ok"] for w in out),
+    import version
+    return dict(version=version.get(), params=dict(vars(args), nozzle=gen3.NOZZLE), strand=W.round(5).tolist(), waypoints=out, fails=len(W) - sum(w["ok"] for w in out),
                 printable_mm=round(float(s[len([w for w in out if w["ok"]]) - 1]) * 1000, 1), total_mm=round(float(s[-1]) * 1000, 1),
                 hotend=[h[0] for h in HOTEND], arm=[a[0] for a in ARM])
 

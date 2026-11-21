@@ -9,3 +9,4 @@ arm/live.json
 arm/live.json.tmp
 arm/plans/last_run.json
 arm/plans/table.json
+arm/VERSION

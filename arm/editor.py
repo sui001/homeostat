@@ -19,7 +19,9 @@ import json, math, os, re, signal, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
-import gen3, plan, editor_core as ec, attractors, armstream
+import gen3, plan, editor_core as ec, attractors, armstream, version
+
+VERSION = version.get()       # what this editor is running: the pages show it, and reload when it changes
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLANS = os.path.join(HERE, "plans")
@@ -447,7 +449,9 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/live":
                 return self.send(200, live_state())
             if u.path == "/api/job":
-                return self.send(200, dict(job, on_arm=ON_ARM, now=time.time()))
+                return self.send(200, dict(job, on_arm=ON_ARM, now=time.time(), version=VERSION))
+            if u.path == "/api/version":
+                return self.send(200, dict(VERSION, label=version.label(VERSION)))
             m = re.fullmatch(r"/plans/(layout-[0-9-]+(?:_checked)?\.(html|json))", u.path)
             if m and os.path.exists(os.path.join(PLANS, m.group(1))):
                 ct = "text/html; charset=utf-8" if m.group(2) == "html" else "application/json"

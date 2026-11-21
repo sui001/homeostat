@@ -821,4 +821,25 @@ $("stopArm").onclick = stopNow;
   frameObject(); scheduleQuick(true); pollJob();
 })();
 </script>
+
+<div id="verTag" style="position:fixed;right:8px;bottom:6px;font:11px system-ui;color:#8a887f;z-index:50"></div>
+<div id="verNew" hidden style="position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#8a5a00;color:#fff;padding:10px 16px;border-radius:6px;font:15px system-ui;cursor:pointer">
+  The software on armster has been updated. <b><u>Reload this page</u></b> to use it.</div>
+<script>
+// which version is running on armster, and a nudge when it changes under an open page
+(() => {
+  let seen = null;
+  const tag = document.getElementById("verTag"), nw = document.getElementById("verNew");
+  nw.onclick = () => location.reload();
+  const fmt = v => v.label || v.commit;
+  async function check() {
+    try {
+      const v = await (await fetch("/api/version")).json(), key = v.commit + "/" + (v.deployed || "") + "/" + (v.changes || 0);
+      if (seen === null) { seen = key; tag.textContent = "version " + fmt(v); tag.title = v.deployed ? "deployed " + v.deployed : ""; }
+      else if (key !== seen) { nw.hidden = false; tag.textContent = "version " + fmt(v) + " on armster (this page is older)"; }
+    } catch (e) { /* not served by the editor, or it is restarting */ }
+  }
+  check(); setInterval(check, 15000);
+})();
+</script>
 </body></html>

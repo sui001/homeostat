@@ -69,6 +69,7 @@ tips = np.array([w["tip"] for w in wps]) + [0, 0, RAISE]
 eul = [w["euler"] for w in wps]
 NOZ = d["params"].get("nozzle", gen3.ARM_TCP)        # plans from before the nozzle was measured: tcp == tip
 tcp_of = lambda pt, e: gen3.arm_tcp(pt, e, NOZ)
+import version; print("software version %s" % version.label(), flush=True)
 print("plan %s: %d points, %.0f mm, raised %.0f mm -> tip z %.0f..%.0f mm"
       % (PLAN, len(wps), 1000 * np.linalg.norm(np.diff(tips, axis=0), axis=1).sum(), RAISE * 1000,
          tips[:, 2].min() * 1000, tips[:, 2].max() * 1000))

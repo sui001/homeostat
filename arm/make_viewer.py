@@ -18,7 +18,7 @@ for w in d["waypoints"]:
     frames.append(dict(p=pts, ax=F[-1][:3, 2].round(4).tolist(), h=min(w["hotend_mm"]), a=min(w["arm_mm"]),
                        tilt=w["tilt"], q=[round(v, 1) for v in q]))
 data = dict(strand=d["strand"], frames=frames, params=d["params"], hotend=plan.HOTEND, arm=plan.ARM,
-            check=d.get("arm_check"))
+            check=d.get("arm_check"), version=d.get("version"))
 html = open("viewer_template.html", encoding="utf-8").read().replace("/*DATA*/null", json.dumps(data))
 open(dst, "w", encoding="utf-8").write(html)
 print("wrote", dst)

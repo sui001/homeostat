@@ -124,6 +124,8 @@ if (D.check) {
     `  arm IK vs plan: ${c.worst_dq.toFixed(2)}° worst joint difference\n  trajectory errors: ${c.traj_errors.length}` +
     (c.traj_errors.length ? "\n    " + c.traj_errors.slice(0, 6).map(e => e.join(" ")).join("\n    ") : "");
 } else $("check").textContent = "Not yet checked on the arm.";
+if (D.version) $("check").textContent += `
+Made by software version ${D.version.commit}${D.version.date ? " of " + D.version.date.slice(0, 16).replace("T", " ") : ""}.`;
 
 let drag = null;
 cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); drag = [e.clientX, e.clientY]; cv.style.cursor = "grabbing"; });
