@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TL's needle: a motorised fader</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: a drawing set. Each figure gets the full sheet width, with notes in a plain column under it. */
+:root {
+  --bg: #eef2f3; --sheet: #fbfcfc; --fg: #17242b; --muted: #55666f; --rule: #c6d1d5;
+  --sig: #0b63a8; --ht: #c02f2a; --lv: #8a5a00; --grid: #18794e; --uni: #6b3fa0; --inf: #b45f06;
+  --l1: #0b63a8; --l2: #c02f2a; --l3: #18794e; --l4: #6b3fa0;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10181c; --sheet: #172127; --fg: #e4ecef; --muted: #9aabb3; --rule: #33434b;
+  --sig: #62b4f0; --ht: #f2837d; --lv: #e0b050; --grid: #5fcf9c; --uni: #bd9bea; --inf: #f4a653;
+  --l1: #62b4f0; --l2: #f2837d; --l3: #5fcf9c; --l4: #bd9bea; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10181c; --sheet: #172127; --fg: #e4ecef; --muted: #9aabb3; --rule: #33434b;
+  --sig: #62b4f0; --ht: #f2837d; --lv: #e0b050; --grid: #5fcf9c; --uni: #bd9bea; --inf: #f4a653;
+  --l1: #62b4f0; --l2: #f2837d; --l3: #5fcf9c; --l4: #bd9bea; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--sans); }
+main { max-width: 1120px; margin: 0 auto; padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 44px; }
+main > * { min-width: 0; }
+h1 { font: 600 2.4rem/1.1 var(--cond); margin: 0 0 10px; text-wrap: balance; }
+h2 { font: 600 1.5rem/1.2 var(--cond); margin: 0 0 8px; text-wrap: balance; }
+h3 { font: 600 1rem/1.3 var(--sans); margin: 22px 0 6px; }
+p { margin: 0 0 12px; max-width: 70ch; }
+.lede { color: var(--muted); font-size: 1.08rem; }
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-top: 22px; }
+.key > div { min-width: 0; }
+.key b { display: block; margin-bottom: 4px; }
+.key p { font-size: .95rem; margin: 0; }
+figure { margin: 14px 0 0; background: var(--sheet); border: 1px solid var(--rule); }
+.scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font: 12.5px/1.5 var(--mono); color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.sw { display: inline-block; width: 18px; border-top: 3px solid; vertical-align: middle; margin-right: 6px; }
+.sw.d { border-top-style: dashed; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; }
+td code, p code, li code { font: .9em var(--mono); }
+.tw { overflow-x: auto; }
+.src { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; align-items: start; }
+.src figure { margin: 0; min-width: 0; }
+.scan { display: block; width: 100%; height: auto; background: #fff; }
+ul { margin: 0 0 12px; padding-left: 20px; max-width: 70ch; }
+li { margin-bottom: 6px; }
+/* drawing styles */
+svg polyline, svg path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.w { stroke: var(--fg); stroke-width: 1.5; } .s { stroke: var(--sig); stroke-width: 1.8; }
+.h { stroke: var(--ht); stroke-width: 1.8; } .lv { stroke: var(--lv); stroke-width: 1.8; }
+.gr { stroke: var(--grid); stroke-width: 1.8; } .u { stroke: var(--uni); stroke-width: 1.8; }
+.inf { stroke: var(--inf); stroke-width: 1.8; stroke-dasharray: 6 4; }
+.mech { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.thin { stroke-width: 1.2; } .thick { stroke-width: 3; } .dash { stroke-dasharray: 7 6; }
+.l1 { stroke: var(--l1); stroke-width: 2.4; } .l2 { stroke: var(--l2); stroke-width: 2.4; }
+.l3 { stroke: var(--l3); stroke-width: 2.4; } .l4 { stroke: var(--l4); stroke-width: 2.4; }
+svg path.arrow { stroke: none; fill: var(--fg); }
+circle.dot.w { fill: var(--fg); } circle.dot.s { fill: var(--sig); } circle.dot.gr { fill: var(--grid); }
+circle.dot { stroke: none; }
+circle.pin { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.5; }
+rect.part, circle.part { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.5; }
+rect.part.u { stroke: var(--sig); }
+rect.former { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 8 5; }
+rect.magnet { fill: var(--fg); } rect.trough { fill: var(--rule); stroke: var(--fg); stroke-width: 1.2; }
+rect.term { fill: var(--bg); stroke: var(--fg); stroke-width: 1.2; }
+rect.column { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+rect.cell { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.3; }
+rect.drive { fill: var(--sheet); stroke-width: 2.4; }
+rect.d1 { stroke: var(--l1); } rect.d2 { stroke: var(--l2); } rect.d3 { stroke: var(--l3); } rect.d4 { stroke: var(--l4); }
+svg text { fill: var(--fg); font-family: var(--mono); font-size: 13px; }
+svg .ts { font-size: 12px; fill: var(--muted); } svg .tx { font-size: 10px; fill: var(--muted); }
+svg .tb { font-family: var(--sans); font-weight: 600; font-size: 14px; }
+svg .tm { font-size: 12px; font-weight: 500; }
+svg .th { fill: var(--ht); font-weight: 500; } svg .tl { fill: var(--lv); font-weight: 500; } svg .ti { font-size: 12px; fill: var(--inf); }
+
+rect.chip { fill: var(--bg); stroke: var(--fg); stroke-width: 1.6; }
+.thick2 { stroke-width: 2.4; }
+.arm { stroke: var(--fg); stroke-width: 7; }
+rect.coilr { fill: var(--sheet); stroke: var(--uni); stroke-width: 2.4; }
+rect.flag { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.4; }
+.grid0 { stroke: var(--rule); stroke-width: 1; }
+nav a, p a, li a, td a { color: var(--sig); }
+.back { font-size: .95rem; }
+.photos { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; align-items: start; margin-top: 14px; }
+.photos .stack { display: grid; gap: 20px; }
+@media (max-width: 760px) { .photos { grid-template-columns: 1fr; } }
+.photos figure, .src figure { margin: 0; min-width: 0; }
+figure img { display: block; width: 100%; height: auto; }
+.steps { display: grid; gap: 14px; margin: 18px 0 0; padding: 0; list-style: none; counter-reset: s; max-width: 74ch; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 8px; margin: 0; }
+.steps li::before { content: counter(s); font: 600 1rem/1.5 var(--cond); color: var(--sig); }
+
+body { margin: 0 } img { max-width: 100% }</style>
+</head>
+<body>
+<main>
+<header>
+  <p class="back"><a href="homeostat_bench_build.html">Back to the first needle</a> · <a href="https://github.com/sui001/homeostat/tree/main/homeostat-arm">homeostat-arm on GitHub</a></p>
+  <h1>TL's needle: a motorised fader</h1>
+  <p class="lede">Unit TL of the simulated homeostat, given a body. A motorised slide fader, the cheapest one on offer, follows TL's red needle as the model runs; take hold of it and it lets go of its motor and becomes the needle, holding TL wherever the hand puts it. Built on 23 November 2026 from that fader, an L293D from the parts drawer and an ESP32-S3 SuperMini. This page records what was built, what went wrong on the way, and what it does now.</p>
+  <div class="key">
+    <div><b>It follows TL</b><p>Within about 2° when TL drifts, about 6° behind when TL swings fast. The sim sends TL 20 times a second; the fader smooths that staircase into a glide.</p></div>
+    <div><b>A hand outranks the model</b><p>Push it 4° or more off where it should be and hold it there: within 0.15 s it goes slack and TL follows the hand. Let go, and TL carries on from there.</p></div>
+    <div><b>The parts were fine; the wiring wasn't</b><p>Almost every failure on the way was a wire: a ground on a motor output, a capacitor across the motor and the wiper, a ground that worked loose. The firmware now guards against each of them.</p></div>
+  </div>
+</header>
+
+<section>
+  <h2>On the bench</h2>
+  <div class="photos">
+    <figure class="hero"><img src="img/fader/fader_pins.jpg" width="2016" height="1512" alt="The motorised fader on its back: a long steel channel marked B10K, with the small round motor at one end. Four pins at each end of the track, marked 2, 1, 1′, 2′ at one end and 4, 3, 3′, 4′ at the other; the motor's two tabs, one marked with a red dot."><figcaption>The fader. Two 10k tracks side by side: 1–4 and the primed 1′–4′. Only 1–4 is used. The motor's red dot marks its + tab.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>What we did</h2>
+  <ol class="steps">
+    <li><span><b>Read the fader.</b> Its only markings: B10K (a 10 kΩ linear track), two motor tabs, and pins 2 1 1′ 2′ at one end, 4 3 3′ 4′ at the other. The primes mark a second, identical track. Pins 1 and 3 are the ends of track one, 2 its wiper. Nothing senses touch.</span></li>
+    <li><span><b>Chose a driver from the drawer.</b> The motor is a plain two-wire DC motor that has to go both ways, so it needs an H-bridge. On hand: an L293D (does it, loses about 2 V), a 4N35 optocoupler and a 74HC595 shift register (neither drives a motor), an HW-687 MOSFET board (one direction only) and, found later, an A4988 (steppers only).</span></li>
+    <li><span><b>First sketch, first fault.</b> Sliding by hand read 0 to 84 of 4095. The wires were on the wrong pins of the track; moved to 1–3, the reading swept 0 to 4081, smooth and even.</span></li>
+    <li><span><b>The motor would only go one way.</b> L293D pin 6, one of the motor outputs, was also jumpered to ground. With it held low the motor could be driven towards 0 but never back.</span></li>
+    <li><span><b>Brownouts.</b> On the SuperMini's own USB 5 V, each push of the motor sagged the supply until the S3 reset (<code>Brownout detector was triggered</code>). The motor got its own supply on L293D pin 8: first 5 V, then 9.24 V.</span></li>
+    <li><span><b>Readings that swung with the motor.</b> With the slider standing still, the reading jumped about 1,300 counts one way or the other depending on drive direction. A capacitor sat between the motor output and the wiper line, coupling the 20 kHz drive straight into the reading. Moved across the motor supply, where it belonged.</span></li>
+    <li><span><b>Tuned it to move gently.</b> At 20 kHz the L293D can't switch cleanly enough: the slider needed 75% power to move at all, so it could only lurch. At 500 Hz it creeps at 25%. Speed-controlled moves (a setpoint that glides to the target) then landed within about 10 counts in 1–2 s, at the cost of an audible hum.</span></li>
+    <li><span><b>Joined it to the simulator.</b> The campus Wi-Fi won't take an ESP32, so the fader talks USB serial to the layout editor that serves the simulator, and the page reaches it through the editor (Fig. 2). TL's needle drives it; a hand on it holds TL.</span></li>
+    <li><span><b>A loose ground.</b> Touching the fader made it slam about; then it stopped dead, reading 4095 at the ground end. Fader pin 1 had worked off its ground. Reseated, it slammed to the far end chasing the reading it had believed. Added guards: a jump no slider could make is ignored, a reading stuck at an end while TL is elsewhere stops the motor, and so does pushing without moving.</span></li>
+    <li><span><b>Ground bounce.</b> Near the ground end the reading flipped between 0 and about 340 many times a second: motor current pulsing through the shared ground. Each reading is now 16 samples spread over one 2 ms motor pulse, which averages it out.</span></li>
+    <li><span><b>Two homeostats, one fader.</b> Every open copy of the simulator runs its own homeostat, so the fader was following one page while we watched another. One page drives it at a time now: ticking the box claims it, and any other page lets go and says so.</span></li>
+    <li><span><b>Smoothed the following.</b> TL arrives in 20 Hz steps and the fader lurched from step to step. It now smooths TL over 0.1 s, steers by TL's speed, aims ahead to win back the lag, and pushes more gently once moving. Direction reversals on a test sine fell from 81 to 18 (Fig. 3).</span></li>
+  </ol>
+</section>
+
+<section>
+  <h2>What went wrong, and what it looked like</h2>
+  <p>For the next fader. Most of these look like a software problem from the outside.</p>
+  <div class="tw"><table>
+    <tr><th>What it did</th><th>Cause</th><th>Fix</th></tr>
+    <tr><td>Hand slide reads only 0–84</td><td>Wires on the wrong track pins</td><td>Track ends on 1 and 3, wiper on 2; the primed pins left alone</td></tr>
+    <tr><td>Moves towards 0 only, hard</td><td>L293D pin 6 (motor output) also jumpered to ground</td><td>Pin 6 to the motor and nothing else</td></tr>
+    <tr><td>Board restarts mid-move</td><td>Motor on the SuperMini's USB 5 V</td><td>Motor supply of its own on pin 8, grounds joined</td></tr>
+    <tr><td>Reading swings ±1,300 with drive direction, slider still</td><td>Capacitor between motor output (pin 3) and the wiper</td><td>Electrolytic across pin 8 and GND; the wiper gets nothing but its wire</td></tr>
+    <tr><td>Won't move at 60% power</td><td>5 V minus the L293D's 2 V, then capped</td><td>9 V motor supply, full power available</td></tr>
+    <tr><td>Slams about when touched, then reads 4095 at the ground end</td><td>Fader pin 1's ground working loose</td><td>Reseated; firmware ignores impossible jumps and stops on a stuck reading</td></tr>
+    <tr><td>Reading flips 0 ↔ 340 near the ground end</td><td>Motor current in the fader's ground</td><td>Readings averaged over a PWM period; pin 1 should have its own wire to GND</td></tr>
+    <tr><td>Fader “not in sync” with the sim</td><td>Following a different open copy of the sim</td><td>One page drives at a time, the others say so</td></tr>
+    <tr><td>Jittery following</td><td>20 Hz steps, a hard minimum push</td><td>Smoothing, speed feed-forward, lighter push when moving</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Fig. 1: The wiring</h2>
+  <p>Power and ground are drawn as labels: every <code>GND</code> is one net and every <code>5V</code> another, joined at the SuperMini. The motor's 9 V touches only L293D pin 8. Crossing lines without a dot don't connect.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1100 600" style="min-width:880px" role="img" aria-label="An ESP32-S3 SuperMini wired to an L293D: GPIO5 to enable, GPIO6 and GPIO7 to the two inputs, 5 V to the logic supply. The L293D's outputs on pins 3 and 6 go to the fader motor; pin 8 takes a separate 9 V motor supply. The fader's track runs from 3V3 on pin 3 to ground on pin 1, with its wiper on pin 2 going to GPIO1.">
+<rect class="chip" x="40" y="110" width="200" height="380" rx="8"/>
+<text class="tb" x="140" y="100" text-anchor="middle">ESP32-S3 SuperMini</text>
+<text class="ts" x="140" y="510" text-anchor="middle">USB-C to the editor</text>
+<text class="tm" x="230" y="154" text-anchor="end">3V3</text><circle class="pin" cx="240" cy="150" r="3.5"/>
+<text class="tm" x="230" y="204" text-anchor="end">GPIO1</text><circle class="pin" cx="240" cy="200" r="3.5"/>
+<text class="tm" x="230" y="264" text-anchor="end">GPIO5</text><circle class="pin" cx="240" cy="260" r="3.5"/>
+<text class="tm" x="230" y="304" text-anchor="end">GPIO6</text><circle class="pin" cx="240" cy="300" r="3.5"/>
+<text class="tm" x="230" y="344" text-anchor="end">GPIO7</text><circle class="pin" cx="240" cy="340" r="3.5"/>
+<text class="tm" x="230" y="424" text-anchor="end">5V</text><circle class="pin" cx="240" cy="420" r="3.5"/>
+<text class="tm" x="230" y="464" text-anchor="end">GND</text><circle class="pin" cx="240" cy="460" r="3.5"/>
+<text class="ts" x="60" y="200" text-anchor="start">ADC1</text>
+<text class="ts" x="60" y="280" text-anchor="start">PWM 500 Hz</text>
+
+<rect class="part" x="700" y="60" width="300" height="60" rx="0"/>
+<text class="tb" x="850" y="88" text-anchor="middle">B10K fader, track 1–4</text>
+<text class="ts" x="850" y="108" text-anchor="middle">1′–4′ unused</text>
+<circle class="pin" cx="720" cy="120" r="3.5"/><text class="tm" x="712" y="140" text-anchor="end">1</text>
+<circle class="pin" cx="760" cy="120" r="3.5"/><text class="tm" x="768" y="140" text-anchor="start">2 wiper</text>
+<circle class="pin" cx="1000" cy="90" r="3.5"/><text class="tm" x="1008" y="84" text-anchor="start">3</text>
+<polyline class="lv" points="240,150 270,150 270,30 1040,30 1040,90 1000,90"/>
+<text class="tl" x="660" y="24" text-anchor="middle">3V3 to the far end of the track</text>
+<polyline class="s" points="760,120 760,180 300,180 300,200 240,200"/>
+<text class="ts" x="520" y="200" text-anchor="middle">wiper: 0 V at pin 1's end, 3.3 V at pin 3's</text>
+<polyline class="w" points="720,120 720,160 690,160"/><text class="tm" x="684" y="164" text-anchor="end">GND</text>
+<text class="ts" x="684" y="148" text-anchor="end">its own wire</text>
+
+<rect class="chip" x="460" y="225" width="200" height="245" rx="6"/>
+<text class="tb" x="560" y="345" text-anchor="middle">L293D</text>
+<text class="ts" x="560" y="365" text-anchor="middle">notch up</text>
+<circle class="pin" cx="460" cy="240" r="3.5"/><text class="tm" x="470" y="244">1 EN</text>
+<circle class="pin" cx="460" cy="270" r="3.5"/><text class="tm" x="470" y="274">2 1A</text>
+<circle class="pin" cx="460" cy="300" r="3.5"/><text class="tm" x="470" y="304">3 1Y</text>
+<circle class="pin" cx="460" cy="330" r="3.5"/><text class="tm" x="470" y="334">4 GND</text>
+<circle class="pin" cx="460" cy="360" r="3.5"/><text class="tm" x="470" y="364">5 GND</text>
+<circle class="pin" cx="460" cy="390" r="3.5"/><text class="tm" x="470" y="394">6 2Y</text>
+<circle class="pin" cx="460" cy="420" r="3.5"/><text class="tm" x="470" y="424">7 2A</text>
+<circle class="pin" cx="460" cy="450" r="3.5"/><text class="tm" x="470" y="454">8 VCC2</text><text class="tl" x="540" y="454">9 V</text>
+<circle class="pin" cx="660" cy="240" r="3.5"/><text class="tm" x="650" y="244" text-anchor="end">VCC1 16</text>
+<circle class="pin" cx="660" cy="330" r="3.5"/><text class="tm" x="650" y="334" text-anchor="end">GND 13</text>
+<circle class="pin" cx="660" cy="360" r="3.5"/><text class="tm" x="650" y="364" text-anchor="end">GND 12</text>
+<circle class="pin" cx="660" cy="450" r="3.5"/><text class="tm" x="650" y="454" text-anchor="end">EN3,4 9</text>
+
+<polyline class="s" points="240,260 380,260 380,240 460,240"/>
+<polyline class="s" points="240,300 400,300 400,270 460,270"/>
+<polyline class="s" points="240,340 420,340 420,420 460,420"/>
+<polyline class="lv" points="240,420 270,420"/><text class="tl" x="276" y="424" text-anchor="start">5V</text>
+<polyline class="lv" points="660,240 690,240"/><text class="tl" x="696" y="244" text-anchor="start">5V</text>
+<polyline class="w" points="660,330 690,330"/><polyline class="w" points="660,360 690,360"/><polyline class="w" points="660,450 690,450"/>
+<text class="tm" x="696" y="349" text-anchor="start">GND</text><text class="tm" x="696" y="454" text-anchor="start">GND</text>
+<text class="ts" x="696" y="470" text-anchor="start">(second channel off)</text>
+<polyline class="w" points="240,460 270,460"/><text class="tm" x="276" y="464" text-anchor="start">GND</text>
+<text class="ts" x="560" y="490" text-anchor="middle">pins 4 and 5 to GND as well</text>
+
+<polyline class="h" points="460,300 440,300 440,540 860,540 860,328"/>
+<polyline class="h" points="460,390 448,390 448,525 900,525 900,328"/>
+<circle class="part" cx="880" cy="300" r="34"/>
+<text class="tb" x="880" y="305" text-anchor="middle">M</text>
+<text class="ts" x="852" y="352" text-anchor="end">+ (red dot)</text>
+<text class="ts" x="908" y="352" text-anchor="start">−</text>
+<rect class="part" x="940" y="380" width="130" height="40" rx="0"/>
+<text class="tm" x="1005" y="405" text-anchor="middle">9 V supply</text>
+<text class="tl" x="1005" y="442" text-anchor="middle">+ to L293D pin 8 only</text>
+<text class="ts" x="1005" y="460" text-anchor="middle">− to GND, electrolytic</text>
+<text class="ts" x="1005" y="476" text-anchor="middle">across + and −</text>
+</svg></div>
+  <figcaption><span><span class="sw" style="border-color:var(--sig)"></span>signal</span><span><span class="sw" style="border-color:var(--ht)"></span>motor</span><span><span class="sw" style="border-color:var(--lv)"></span>supply</span><span><span class="sw" style="border-color:var(--fg)"></span>ground</span></figcaption></figure>
+  <div class="tw" style="margin-top:14px"><table>
+    <tr><th>From</th><th>To</th><th>Note</th></tr>
+    <tr><td>Fader 3, 1, 2</td><td>3V3, GND, GPIO1</td><td>Pin 1 on its own wire to a SuperMini GND pin, away from motor current</td></tr>
+    <tr><td>L293D 1, 2, 7</td><td>GPIO5, GPIO6, GPIO7</td><td>EN takes the PWM; the inputs set direction (both high = brake)</td></tr>
+    <tr><td>L293D 3, 6</td><td>Motor tabs</td><td>Nothing else on these two pins</td></tr>
+    <tr><td>L293D 16 / 8</td><td>SuperMini 5V / 9 V supply +</td><td>Logic and motor supplies kept apart</td></tr>
+    <tr><td>L293D 4, 5, 12, 13, 9</td><td>GND</td><td>Pin 9 off disables the unused second channel</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Fig. 2: How it joins the simulator</h2>
+  <p>The simulator runs in the browser. The fader is on USB to the machine running the layout editor, which already serves the simulator page, so the page talks to the fader through it.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1100 200" style="min-width:880px" role="img" aria-label="The simulator page in the browser sends TL's angle 20 times a second to the editor's /api/fader; the editor passes it over USB serial to the SuperMini, which drives the fader and reports its position and mode back the same way.">
+<rect class="part" x="30" y="50" width="220" height="90" rx="0"/>
+<text class="tb" x="140" y="82" text-anchor="middle">Simulator page</text>
+<text class="ts" x="140" y="104" text-anchor="middle">TL's needle, 20 Hz</text>
+<text class="ts" x="140" y="122" text-anchor="middle">one page drives at a time</text>
+<rect class="part" x="400" y="50" width="240" height="90" rx="0"/>
+<text class="tb" x="520" y="82" text-anchor="middle">Layout editor</text>
+<text class="ts" x="520" y="104" text-anchor="middle">/api/fader, fader.py</text>
+<text class="ts" x="520" y="122" text-anchor="middle">finds the S3 by USB id</text>
+<rect class="part" x="790" y="50" width="280" height="90" rx="0"/>
+<text class="tb" x="930" y="82" text-anchor="middle">SuperMini + fader</text>
+<text class="ts" x="930" y="104" text-anchor="middle">follow · rest · held · fault</text>
+<text class="ts" x="930" y="122" text-anchor="middle">status 25 times a second</text>
+<polyline class="s" points="250,80 400,80"/><text class="ts" x="325" y="72" text-anchor="middle">?tl=deg</text>
+<polyline class="gr" points="400,115 250,115"/><text class="ts" x="325" y="134" text-anchor="middle">where the fader is</text>
+<polyline class="s" points="640,80 790,80"/><text class="ts" x="715" y="72" text-anchor="middle">T &lt;deg&gt;</text>
+<polyline class="gr" points="790,115 640,115"/><text class="ts" x="715" y="134" text-anchor="middle">{"deg", "mode"}</text>
+<text class="ts" x="550" y="180" text-anchor="middle">When the fader says "held", the page holds TL at the fader's angle, as dragging TL's dial does.</text>
+</svg></div></figure>
+</section>
+
+<section>
+  <h2>Fig. 3: What it does</h2>
+  <h3>Following</h3>
+  <p>A test sine, 30° either way over 4 s, sent 20 times a second as the simulator sends TL. A direction reversal is the fader changing direction by more than 0.3°; the sine itself reverses 5 times in the run.</p>
+  <div class="tw"><table>
+    <tr><th>Firmware</th><th>Reversals</th><th>Jitter</th><th>Behind TL</th></tr>
+    <tr><td>Steering straight at each 20 Hz step</td><td>81</td><td>3.39</td><td>3.0°</td></tr>
+    <tr><td>TL smoothed over 0.1 s</td><td>10</td><td>1.26</td><td>9.2°</td></tr>
+    <tr><td>Smoothed, aiming ahead by TL's speed (now)</td><td>18</td><td>1.25</td><td>6.1°</td></tr>
+  </table></div>
+  <p style="margin-top:10px">Jitter is the mean second difference of the fader's angle between samples: lower is smoother. With TL drifting slowly, the fader stayed within about 2°.</p>
+  <h3>The hand</h3>
+  <ul>
+    <li>Four test grabs: each detected after a push of 8–14° (337–552 counts), within 0.15 s.</li>
+    <li>Released after 0.7 s of the slider standing still; TL then carried on from where the hand left it.</li>
+    <li>The test is distance, not speed: more than 4° off and winning back less than 1.5° in 0.15 s. Speed alone was too jittery under the 500 Hz drive to stay below a threshold for long.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Why these parts</h2>
+  <div class="tw"><table>
+    <tr><th>Option</th><th>Verdict</th></tr>
+    <tr><td>L293D</td><td>Used. Two-way and forgiving, with its kickback diodes built in. Loses about 2 V, and switches too slowly to drive gently at inaudible frequencies, hence the 500 Hz hum.</td></tr>
+    <tr><td>TB6612FNG, DRV8833</td><td>Better: MOSFET bridges, about 0.2 V lost, clean at 20 kHz, so slow, smooth and silent. Not in the drawer.</td></tr>
+    <tr><td>A4988</td><td>No. A stepper driver: it sequences current through two coils from step and direction pulses, and can't hold a two-wire motor steadily one way.</td></tr>
+    <tr><td>HW-687 (555 and a MOSFET)</td><td>No. Switches one side of the motor only, so one direction; speed set by its own knob. Good for lamps, fans, pumps.</td></tr>
+    <tr><td>4N35, 74HC595</td><td>Not drivers. An optocoupler and a shift register: kept for isolating a signal, or more outputs when there are more faders.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Firmware</h2>
+  <p>All in <a href="https://github.com/sui001/homeostat/tree/main/homeostat-arm">homeostat-arm/</a> in this repository, for an ESP32-S3 SuperMini with USB CDC on boot (esp32 core 3.x).</p>
+  <div class="tw"><table>
+    <tr><th>File</th><th>What it does</th></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/homeostat-arm/fader/homeostat_fader"><code>fader/homeostat_fader</code></a></td><td>The fader as TL: follows a streamed angle, detects a hand, guards against bad wiring. Version from git on its first serial line</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/blob/main/homeostat-arm/fader/flash.ps1"><code>fader/flash.ps1</code></a></td><td>Writes the version from git, compiles, uploads, shows the boot line</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/blob/main/homeostat-arm/arm/fader.py"><code>arm/fader.py</code></a></td><td>USB-serial bridge in the layout editor; one page drives at a time</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/blob/main/homeostat-arm/arm/fader.html"><code>arm/fader.html</code></a></td><td>The fader on its own page: dial, a slider to drive it, a 20 s trace</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/homeostat-arm/fader/bench"><code>fader/bench</code></a> v1.0–1.9</td><td>Bring-up: wiring checks, jog and hold commands for metering, live tuning of gains, power floor and PWM frequency</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Parts</h2>
+  <div class="tw"><table>
+    <tr><th>Part</th><th>Source</th></tr>
+    <tr><td>Motorised slide fader, B10K dual track</td><td>Bought, the cheapest on offer</td></tr>
+    <tr><td>ESP32-S3 SuperMini</td><td>Bought new, about $4</td></tr>
+    <tr><td>L293D</td><td>Parts drawer</td></tr>
+    <tr><td>9 V supply, electrolytic capacitor, jumper wire</td><td>On hand</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Next</h2>
+  <ul>
+    <li>Solder the three fader wires, with pin 1 on its own wire to the SuperMini's GND.</li>
+    <li>Swap the L293D for a TB6612FNG or DRV8833 to lose the hum; the firmware already has the option.</li>
+    <li>Plug it into armster, so it works from the simulator there too (armster needs <code>pyserial</code>).</li>
+    <li>Three more faders for TR, BR and BL, and the whole homeostat can be held, nudged and felt by hand.</li>
+  </ul>
+  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Recorded with the fader on firmware <code>0c9cf40 · 23 Nov 14:19</code>.</p>
+</section>
+</main>
+</body>
+</html>
