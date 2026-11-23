@@ -65,6 +65,46 @@ Aizawa, Halvorsen, Chen) and makes it the path, standing upright, with Light dra
 is the system's own time (longer = more loops, longer drawing), **Seed** nudges the start for a
 different trajectory. At scale S it is about 2 S mm across. `attractors.py` does the maths.
 
+## TL fader
+
+A motorised slide fader plays unit TL's needle. In the simulator, tick **TL drives the fader** (the
+"TL fader" card): the fader follows TL's red needle, about 1 s end to end, and a short white tick on TL's
+dial shows where the fader really is. Take hold of the fader and push, and it lets go of its motor and
+**holds TL wherever you put it**, the same as dragging TL's dial; let go and leave it still for about
+0.7 s and TL carries on from there. Every open copy of the simulator runs its own homeostat, so the
+fader follows one page at a time: ticking the box claims it, and any other page that had it unticks
+itself and says so. **http://…:8792/fader** shows the fader on its own, with a slider
+to drive it from the page and a 20 s trace.
+
+The fader is on USB to whichever machine runs the editor: `fader.py` finds it (Espressif's USB id
+303A, or `FADER_PORT=COM4` / `/dev/ttyACM0`) and the pages reach it through `/api/fader`. With the
+fader on the laptop, use the laptop's own editor (`python arm/editor.py`, then
+http://localhost:8792/sim). Plugged into armster, it works from http://armster:8792/sim too (armster
+needs `pyserial`; without it the editor runs and the card says so). The editor lets go of the port
+when it vanishes and finds it again, so the fader can be unplugged at any time.
+
+Hardware: ESP32-S3 SuperMini, L293D, a B10K dual-track motorised fader (track 1-4 only).
+
+| Fader / L293D | SuperMini / supply |
+|---|---|
+| fader 3, 1, 2 (wiper) | 3V3, GND on its own wire, GPIO1 |
+| L293D 1 (EN), 2 (1A), 7 (2A) | GPIO5, GPIO6, GPIO7 |
+| L293D 3, 6 | the two motor tabs (nothing else on pin 6) |
+| L293D 16 / 8 | SuperMini 5V / motor supply, 9 V |
+| L293D 4, 5, 12, 13, 9 | GND |
+
+The motor needs its own 9 V supply: on the USB 5 V it browns the SuperMini out. PWM is 500 Hz, so it
+hums while it moves; the L293D can't creep the motor slowly at inaudible frequencies (a TB6612FNG
+could). The firmware is `fader/homeostat_fader/`; flash it with
+
+```powershell
+powershell -File fader\flash.ps1        # writes version.h from git, compiles, uploads, prints the boot line
+```
+
+Stop the editor first (it holds the port). `fader/bench/` holds the bring-up sketches (v1.0-1.9) the
+tuning came from: wiring checks, jog and hold commands for metering, live `kp`/`kd`/`min`/`freq` tuning. The firmware's version is its first serial line, and the
+simulator's card and the /fader page show it.
+
 ## The scripts
 
 | File | What it does |
@@ -83,6 +123,7 @@ different trajectory. At scale S it is about 2 S mm across. `attractors.py` does
 | `homeostat_path.py` | The homeostat model, ported from the page, and its 3-D path |
 | `attractors.py` | Lorenz, Rössler, Thomas, Aizawa, Halvorsen and Chen attractors as paths |
 | `armstream.py` | Light drawings as one continuous motion: joint speeds streamed to the arm |
+| `fader.py`, `fader.html` | The TL fader: USB-serial bridge for the editor (`/api/fader`) and its own page (`/fader`) |
 
 ## Numbers to keep in mind
 

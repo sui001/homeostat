@@ -19,7 +19,7 @@ import json, math, os, re, signal, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
-import gen3, plan, editor_core as ec, attractors, armstream, version
+import gen3, plan, editor_core as ec, attractors, armstream, version, fader
 
 VERSION = version.get()       # what this editor is running: the pages show it, and reload when it changes
 
@@ -471,6 +471,14 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, open(os.path.join(HERE, "editor.html"), "rb").read(), "text/html; charset=utf-8")
             if u.path in ("/sim", "/sim/"):
                 return self.send(200, open(os.path.join(HERE, "homeostat.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path in ("/fader", "/fader/"):
+                return self.send(200, open(os.path.join(HERE, "fader.html"), "rb").read(), "text/html; charset=utf-8")
+            if u.path == "/api/fader":       # ?tl=<deg>&id=<page>[&claim=1]: where that page's TL is now
+                s = dict(driving=None)        # (the fader follows one page at a time, unless a hand holds it)
+                if "id" in q:
+                    tl = q.get("tl")
+                    s["driving"] = fader.follow(float(tl) if tl not in (None, "") else None, q["id"], q.get("claim") == "1")
+                return self.send(200, dict(fader.state(), **s))
             if u.path == "/api/plans":
                 return self.send(200, list_plans())
             if u.path == "/api/runtimes":
@@ -635,6 +643,7 @@ if __name__ == "__main__":
     except Exception:
         pass
     threading.Thread(target=load_sweep, daemon=True).start()
+    fader.start()                    # the TL fader on USB, if there is one (or pyserial)
     def warm():      # the measured table height (else the default), for printing and for light
         z = json.load(open(TABLE))["z"] if os.path.exists(TABLE) else 0.16
         reach(z); reach(z, True)

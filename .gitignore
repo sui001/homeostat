@@ -10,3 +10,5 @@ arm/live.json.tmp
 arm/plans/last_run.json
 arm/plans/table.json
 arm/VERSION
+fader/homeostat_fader/version.h
+fader/homeostat_fader/build/

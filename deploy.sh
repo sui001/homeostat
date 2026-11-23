@@ -20,7 +20,7 @@ ssh "$HOST" 'mkdir -p ~/homeostat-arm/arm/plans'
 printf '{"commit": "%s", "date": "%s", "changes": %d, "deployed": "%s"}
 '   "$(git rev-parse --short HEAD)" "$(git log -1 --format=%cI)" "$(git status --porcelain arm deploy.sh | wc -l)"   "$(date -Iseconds)" > arm/VERSION
 echo "deploying $(cat arm/VERSION)"
-scp -q arm/VERSION arm/*.py arm/editor.html arm/homeostat.html arm/viewer_template.html "$HOST:homeostat-arm/arm/"
+scp -q arm/VERSION arm/*.py arm/editor.html arm/homeostat.html arm/fader.html arm/viewer_template.html "$HOST:homeostat-arm/arm/"
 scp -q deploy/homeostat-editor.service "$HOST:/tmp/homeostat-editor.service"
 ssh "$HOST" 'sudo install -m 644 /tmp/homeostat-editor.service /etc/systemd/system/homeostat-editor.service \
   && rm /tmp/homeostat-editor.service \

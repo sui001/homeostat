@@ -126,6 +126,20 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
       <p class="note">Restart applies the preset, seed and polarity setting. Model time per frame is fixed (3 RK4 steps of 10 ms), so a given seed always traces the same path at any speed.</p>
     </div>
 
+    <div class="card" id="faderCard">
+      <h2>TL fader</h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="faderOn"> TL drives the fader, and a hand on the fader holds TL</label>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="fDeg">–</b><span>fader, degrees</span></div>
+        <div class="stat"><b id="fMode">–</b><span>fader is</span></div>
+        <div class="stat"><b id="fLag">–</b><span>behind TL, degrees</span></div>
+      </div>
+      <div id="faderStatus" class="note" role="status"></div>
+      <p class="note">The motorised fader on USB plays TL's needle: it follows TL, and when you take hold of it and push, it lets go and holds TL wherever you put it, the same as dragging TL's dial. Let go and leave it still for a moment, and TL carries on from there. The fader works through the layout editor it is plugged into (this page's own server); <a href="/fader" target="_blank" rel="noopener">its own page</a> shows it alone.</p>
+    </div>
+
     <div class="card">
       <h2>Timer and uniselectors</h2>
       <div class="stats">
@@ -358,8 +372,13 @@ function drawDial(i) {
   ctx.strokeStyle = COLORS[i]; ctx.lineWidth = 7; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (R - 18) * s, cy - (R - 18) * c); ctx.stroke();
   ctx.fillStyle = "#ecebe6"; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill();
+  if (i === 0 && faderLink.on && faderLink.s && faderLink.s.deg != null && !faderLink.holding) {   // where the fader is, as a short white tick
+    const fs = Math.sin(rad(faderLink.s.deg)), fc = Math.cos(rad(faderLink.s.deg));
+    ctx.strokeStyle = "#ecebe6"; ctx.lineWidth = 3; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx + (R + 4) * fs, cy - (R + 4) * fc); ctx.lineTo(cx + (R + 16) * fs, cy - (R + 16) * fc); ctx.stroke();
+  }
   const F = Math.abs(model.x[i]) > LIMIT, rd = unitEls[i].read;
-  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}`;
+  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}${i === 0 && faderLink.holding ? "   held at the fader" : ""}`;
   rd.classList.toggle("f", F);
 }
 
@@ -523,6 +542,55 @@ $("exArm").onclick = async () => {
     if (tab) { tab.location.href = url; tab.focus(); } else location.href = url;   // pop-ups blocked: go there in this tab
   } catch (e) { if (tab) tab.close(); st.textContent = "Couldn't send it: " + (e && e.message ? e.message : e) + "."; }
 };
+
+/* ---------------- TL fader: the motorised fader on USB, through the editor's /api/fader ----------------
+   20 times a second: tell it where TL is, and hear back where it is. When a hand holds the fader it says
+   "held", and TL is held there (as dragging the dial does) until the hand lets go. */
+// Every open copy of this page runs its own homeostat, so the fader follows one page at a time:
+// ticking the box claims it, and a page that loses it to another unticks itself and says so.
+const faderLink = { on: false, busy: false, holding: false, s: null, firstVersion: null, claim: false,
+                    id: Math.random().toString(36).slice(2, 10) };
+function faderOff(why) {
+  faderLink.on = false; $("faderOn").checked = false;
+  if (faderLink.holding) { model.held[0] = false; faderLink.holding = false; }
+  if (why) $("faderStatus").textContent = why;
+}
+$("faderOn").onchange = () => {
+  if (!$("faderOn").checked) return faderOff("");
+  faderLink.on = true; faderLink.claim = true;
+  if (!served) $("faderStatus").textContent = "Open this page from the layout editor (…:8792/sim) to reach the fader.";
+};
+async function faderTick() {
+  if (!faderLink.on || faderLink.busy || !served) return;
+  faderLink.busy = true;
+  try {
+    const q = "?id=" + faderLink.id + (faderLink.claim ? "&claim=1" : "") + (faderLink.holding ? "" : "&tl=" + model.x[0].toFixed(2));
+    const s = await (await fetch("/api/fader" + q)).json();
+    faderLink.claim = false;
+    if (s.driving === false) {
+      faderOff("Another open sim page has the fader now (each page runs its own homeostat). Tick the box again to take it back.");
+      return;
+    }
+    faderLink.s = s;
+    const live = s.connected && !s.error && s.deg != null;
+    if (live && s.mode === "held") {                    // a hand has it: TL goes where the hand puts it
+      model.x[0] = s.deg; model.v[0] = 0; model.held[0] = true; faderLink.holding = true;
+    } else if (faderLink.holding) {                     // let go: TL carries on from there
+      model.held[0] = false; faderLink.holding = false;
+    }
+    if (s.version && faderLink.firstVersion === null) faderLink.firstVersion = s.version;
+    $("fDeg").textContent = live ? (s.deg >= 0 ? "+" : "") + s.deg.toFixed(1) : "–";
+    $("fMode").textContent = live ? ({ held: "held", follow: "moving", rest: "still", fault: "stopped (fault)" }[s.mode] || s.mode) : "–";
+    $("fLag").textContent = live && !faderLink.holding ? Math.abs(model.x[0] - s.deg).toFixed(1) : "–";
+    $("faderStatus").textContent = s.error ? s.error :
+      `on ${s.port}, firmware ${s.version || "?"}` +
+      (faderLink.firstVersion && s.version !== faderLink.firstVersion ? " (reflashed since this page opened)" : "") +
+      (s.note ? ` · last said: ${s.note}` : "");
+  } catch (e) {
+    $("faderStatus").textContent = "Couldn't reach the editor: " + (e && e.message ? e.message : e);
+  } finally { faderLink.busy = false; }
+}
+setInterval(faderTick, 50);
 
 $("preset").value = 0; $("seed").value = PRESETS[0].seed;
 restart();

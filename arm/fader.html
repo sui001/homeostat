@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TL fader</title>
+<style>
+:root { --paper: #f1efe9; --panel: #fbfaf6; --box: #1b1c1e; --ink: #1d1e20; --muted: #6c6a64; --rule: #d5d1c7;
+        --accent: #b5452b; --tl: #d62728; --box-ink: #ecebe6; --mono: ui-monospace, Consolas, monospace; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 18px 16px 40px; display: grid; gap: 14px; }
+h1 { font: 600 22px/1.1 system-ui; margin: 0; }
+p { margin: 0; color: var(--muted); }
+.box { background: var(--box); color: var(--box-ink); border-radius: 4px; padding: 12px; display: grid; gap: 8px; }
+canvas { width: 100%; display: block; }
+#dial { aspect-ratio: 2 / 1.15; }
+#trace { aspect-ratio: 4 / 1; background: #fff; border: 1px solid var(--rule); border-radius: 3px; }
+.read { font: 15px var(--mono); text-align: center; font-variant-numeric: tabular-nums; }
+.read.held { color: #ffb84d; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+input[type=range] { flex: 1; accent-color: var(--tl); }
+label { font-size: 13px; }
+.num { font: 13px var(--mono); min-width: 5ch; text-align: right; }
+#status { font-size: 12px; color: var(--accent); min-height: 1.2em; }
+.note { font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>TL fader</h1>
+  <p>The motorised fader that plays unit TL in <a href="/sim">the simulator</a>. Here it is on its own: move the slider below and the fader follows; push the fader by hand and it lets go and reports "held".</p>
+  <div class="box">
+    <canvas id="dial" width="600" height="345" aria-label="where the fader is (red) and where it is told to be (white tick)"></canvas>
+    <div class="read" id="read">–</div>
+  </div>
+  <div class="row">
+    <label class="row" style="flex:1"><span>Send it to</span>
+      <input type="range" id="to" min="-50" max="50" step="0.5" value="0"><span class="num" id="toOut">0.0°</span></label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="drive"> Drive it from this page</label>
+    <span class="note">(leave it off while the simulator's TL link is on, or the two will argue)</span>
+  </div>
+  <canvas id="trace" width="1400" height="350" aria-label="the last 20 seconds: fader in red, where it was told in grey"></canvas>
+  <div id="status" role="status"></div>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id), rad = d => d * Math.PI / 180;
+let s = null, hist = [];
+
+function drawDial() {
+  const cv = $("dial"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height, cx = W / 2, cy = H * 0.86, R = H * 0.74;
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineWidth = 3; ctx.strokeStyle = "#ecebe6";
+  ctx.beginPath(); ctx.arc(cx, cy, R, rad(-140), rad(-40)); ctx.stroke();
+  ctx.font = "500 16px ui-monospace, monospace"; ctx.textAlign = "center";
+  for (const a of [-45, 0, 45]) {
+    const si = Math.sin(rad(a)), co = Math.cos(rad(a));
+    ctx.strokeStyle = a ? "#ff5a45" : "#8f8e89";
+    ctx.beginPath(); ctx.moveTo(cx + (R - 14) * si, cy - (R - 14) * co); ctx.lineTo(cx + R * si, cy - R * co); ctx.stroke();
+  }
+  if (!s || s.deg == null) return;
+  const t = Math.sin(rad(s.tgt)), tc = Math.cos(rad(s.tgt));
+  ctx.strokeStyle = "#ecebe6"; ctx.lineWidth = 3; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(cx + (R + 4) * t, cy - (R + 4) * tc); ctx.lineTo(cx + (R + 18) * t, cy - (R + 18) * tc); ctx.stroke();
+  const si = Math.sin(rad(s.deg)), co = Math.cos(rad(s.deg));
+  ctx.strokeStyle = s.mode === "held" ? "#ffb84d" : "#d62728"; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (R - 18) * si, cy - (R - 18) * co); ctx.stroke();
+  ctx.fillStyle = "#ecebe6"; ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 7); ctx.fill();
+}
+
+function drawTrace() {
+  const cv = $("trace"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height, now = performance.now();
+  ctx.clearRect(0, 0, W, H);
+  const X = t => W - (now - t) / 20000 * W, Y = d => H / 2 - d / 55 * (H / 2);
+  ctx.strokeStyle = "#e9e6de"; ctx.lineWidth = 1;
+  for (const d of [-45, 0, 45]) { ctx.beginPath(); ctx.moveTo(0, Y(d)); ctx.lineTo(W, Y(d)); ctx.stroke(); }
+  for (const [k, col, w] of [["tgt", "#a9a7a0", 2], ["deg", "#d62728", 3]]) {
+    ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); let first = true;
+    for (const h of hist) { const x = X(h.t), y = Y(h[k]); if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(255,184,77,.25)";                 // when a hand held it
+  for (const h of hist) if (h.mode === "held") ctx.fillRect(X(h.t) - 2, 0, 4, H);
+}
+
+let busy = false, claim = false;
+const pageId = "fader-" + Math.random().toString(36).slice(2, 8);
+$("drive").onchange = () => { claim = $("drive").checked; };
+async function tick() {
+  if (busy) return; busy = true;
+  try {
+    const q = $("drive").checked ? "?id=" + pageId + (claim ? "&claim=1" : "") + "&tl=" + (+$("to").value).toFixed(2) : "";
+    s = await (await fetch("/api/fader" + q)).json();
+    claim = false;
+    if ($("drive").checked && s.driving === false) {      // a sim page (or another of these) took it
+      $("drive").checked = false;
+      $("status").textContent = "Another page has the fader now. Tick Drive it from this page to take it back.";
+    }
+    const live = s.connected && !s.error && s.deg != null;
+    if (live) {
+      hist.push({ t: performance.now(), deg: s.deg, tgt: s.tgt, mode: s.mode });
+      while (hist.length && performance.now() - hist[0].t > 20000) hist.shift();
+    }
+    const r = $("read");
+    r.textContent = live ? `${(s.deg >= 0 ? "+" : "") + s.deg.toFixed(1)}°   told ${(s.tgt >= 0 ? "+" : "") + s.tgt.toFixed(1)}°   ` +
+      ({ held: "held by a hand", follow: "moving", rest: "still", fault: "stopped (fault)" }[s.mode] || s.mode) : "–";
+    r.classList.toggle("held", live && s.mode === "held");
+    if (!(q && s.driving === false))
+      $("status").textContent = s.error ? s.error : `on ${s.port}, firmware ${s.version || "?"}` + (s.note ? ` · last said: ${s.note}` : "") +
+        (s.driver && s.driver_age < 1.5 && s.driver !== pageId ? " · a sim page is driving it" : "");
+  } catch (e) { $("status").textContent = "Couldn't reach the editor: " + (e && e.message ? e.message : e); }
+  finally { busy = false; }
+}
+$("to").oninput = () => { $("toOut").textContent = (+$("to").value).toFixed(1) + "°"; };
+setInterval(tick, 50);
+(function frame() { drawDial(); drawTrace(); requestAnimationFrame(frame); })();
+</script>
+
+<div id="verTag" style="position:fixed;right:8px;bottom:6px;font:11px system-ui;color:#8a887f;z-index:50"></div>
+<div id="verNew" hidden style="position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#8a5a00;color:#fff;padding:10px 16px;border-radius:6px;font:15px system-ui;cursor:pointer">
+  The software has been updated. <b><u>Reload this page</u></b> to use it.</div>
+<script>
+// which version the editor runs (and the fader's firmware), and a nudge when either changes under an open page
+(() => {
+  let seen = null, seenFw = null;
+  const tag = document.getElementById("verTag"), nw = document.getElementById("verNew");
+  nw.onclick = () => location.reload();
+  async function check() {
+    try {
+      const v = await (await fetch("/api/version")).json(), key = v.commit + "/" + (v.deployed || "") + "/" + (v.changes || 0);
+      const f = await (await fetch("/api/fader")).json(), fw = f.version || "";
+      if (seen === null) { seen = key; seenFw = fw; }
+      else if (key !== seen) nw.hidden = false;
+      if (fw && seenFw === "") seenFw = fw;
+      tag.textContent = "version " + (v.label || v.commit) + (fw ? " · fader " + fw + (fw !== seenFw ? " (reflashed)" : "") : "");
+    } catch (e) { /* editor restarting */ }
+  }
+  check(); setInterval(check, 15000);
+})();
+</script>
+</body>
+</html>
