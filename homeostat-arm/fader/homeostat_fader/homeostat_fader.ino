@@ -83,6 +83,13 @@ const int JUMP = 300;          // counts in one reading (~2 ms): no slider moves
 const int JUMP_KEEP = 10;      // ...if it stays that way for this many readings; else it's noise
 int       jumpCount = 0, oddSinceReport = 0;   // odd readings skipped, reported as "odd"
 
+// ---- smoothing TL ----
+float     smoothMs  = 100;     // TL's 20 Hz steps glide into each other over about this long ('smooth N')
+float     tSmooth   = 2048, tVel = 0;   // the glide, and its speed (counts/ms)
+const float STILL_VEL   = 0.02f;  // counts/ms: TL slower than this counts as stopped
+int       MIN_MOVING  = 220;   // duty floor once the slider is already moving ('minmove N')
+const float MOVING_SPEED = 0.5f;  // counts/ms: "already moving"
+
 // ---------------------------------------------------------------------------
 
 // 16 samples spread over one PWM period (2 ms at 500 Hz): motor current pulsing through shared
@@ -126,7 +133,7 @@ void printVersion() { Serial.printf("{\"version\":\"%s\"}\n", FW_VERSION); }
 
 // The hand has let go: carry on from wherever it left the slider.
 void handLetGo(int pos) {
-  target = pos; setpoint = pos;
+  target = pos; setpoint = pos; tSmooth = pos; tVel = 0;
   mode = REST;
   Serial.println("hand off: following again");
 }
@@ -152,15 +159,18 @@ void handleSerial() {
     else if (line.startsWith("min ")) MIN_DUTY = constrain(line.substring(4).toInt(), 0, 1023);
     else if (line.startsWith("max ")) MAX_DUTY = constrain(line.substring(4).toInt(), 0, 1023);
     else if (line.startsWith("speed ")) followSpeed = max(0.1f, line.substring(6).toFloat() / 1000.0f);
+    else if (line.startsWith("smooth ")) smoothMs = constrain(line.substring(7).toFloat(), 0.0f, 1000.0f);
+    else if (line.startsWith("minmove ")) MIN_MOVING = constrain(line.substring(8).toInt(), 0, 1023);
     else if (line.startsWith("freq ")) {
       pwmFreq = constrain(line.substring(5).toInt(), 100, 40000);
       ledcChangeFrequency(PIN_PWM, pwmFreq, PWM_BITS);
     }
     bool tuned = line.startsWith("kp ") || line.startsWith("kd ") || line.startsWith("min ") ||
-                 line.startsWith("max ") || line.startsWith("speed ") || line.startsWith("freq ");
+                 line.startsWith("max ") || line.startsWith("speed ") || line.startsWith("freq ") ||
+                 line.startsWith("smooth ") || line.startsWith("minmove ");
     if (tuned)
-      Serial.printf("tuning kp %.2f kd %.2f min %d max %d freq %lu speed %.0f\n",
-                    KP, KD, MIN_DUTY, MAX_DUTY, (unsigned long)pwmFreq, followSpeed * 1000);
+      Serial.printf("tuning kp %.2f kd %.2f min %d minmove %d max %d freq %lu speed %.0f smooth %.0f\n",
+                    KP, KD, MIN_DUTY, MIN_MOVING, MAX_DUTY, (unsigned long)pwmFreq, followSpeed * 1000, smoothMs);
   }
 }
 
@@ -190,7 +200,7 @@ void control() {
     jumpCount = 0;
     releaseMotor();
     Serial.printf("reading jumped %d -> %d and stayed: wiring? Staying put.\n", lastPos, pos);
-    target = pos; setpoint = pos; speedEst = 0;
+    target = pos; setpoint = pos; tSmooth = pos; tVel = 0; speedEst = 0;
     lastPos = pos; lastUs = now;
     if (mode != FAULT) mode = REST;
     return;
@@ -201,7 +211,7 @@ void control() {
 
   if (mode == FAULT) {
     releaseMotor();
-    if (ms - faultAt > FAULT_MS) { setpoint = pos; mode = REST; railSince = 0; Serial.println("trying again"); }
+    if (ms - faultAt > FAULT_MS) { setpoint = pos; tSmooth = pos; tVel = 0; mode = REST; railSince = 0; Serial.println("trying again"); }
     return;
   }
 
@@ -211,11 +221,22 @@ void control() {
     return;
   }
 
-  // glide the setpoint towards TL, no faster than followSpeed
-  float step = followSpeed * dtMs, setVel = 0;
-  if (target > setpoint + step)      { setpoint += step; setVel = followSpeed; }
-  else if (target < setpoint - step) { setpoint -= step; setVel = -followSpeed; }
-  else                               setpoint = target;
+  // TL arrives as a 20 Hz staircase. Smooth it into a glide (first order, smoothMs) and take TL's
+  // speed from the glide, so the motor steers to where TL is going instead of lurching from step to
+  // step. Then glide the setpoint after it, no faster than followSpeed.
+  float prevSmooth = tSmooth;
+  tSmooth += dtMs / (smoothMs + dtMs) * (target - tSmooth);
+  tVel = 0.8f * tVel + 0.2f * (tSmooth - prevSmooth) / dtMs;
+  // The glide trails TL by its speed x smoothMs; aim that far ahead along TL's motion to take the lag
+  // back out, without bringing the steps back.
+  float aim = constrain(tSmooth + tVel * smoothMs, (float)POS_LOW, (float)POS_HIGH);
+  if (fabsf(target - tSmooth) < DEADBAND) aim = tSmooth;              // TL has arrived: no leading
+  float step = followSpeed * dtMs;
+  if (aim > setpoint + step)      setpoint += step;
+  else if (aim < setpoint - step) setpoint -= step;
+  else                            setpoint = aim;
+  float setVel = constrain(tVel, -followSpeed, followSpeed);
+  if (fabsf(setVel) < STILL_VEL && fabsf(target - tSmooth) < DEADBAND) setVel = 0;   // TL has stopped
 
   int err = lroundf(setpoint) - pos;
 
@@ -241,7 +262,10 @@ void control() {
 
   float u = KP * err - KD * (speedEst - setVel);
   bool pushing = !(setVel != 0 && fabsf(u) < COAST_BELOW);
-  if (pushing) driveMotor(u > 0 ? 1 : -1, constrain((int)fabsf(u), MIN_DUTY, MAX_DUTY));
+  // Unsticking a still slider takes MIN_DUTY; keeping a moving one going takes much less, and using
+  // the big floor for small corrections on the move is what made it kick back and forth.
+  int floorDuty = fabsf(speedEst) > MOVING_SPEED ? MIN_MOVING : MIN_DUTY;
+  if (pushing) driveMotor(u > 0 ? 1 : -1, constrain((int)fabsf(u), floorDuty, MAX_DUTY));
   else releaseMotor();
 
   // pushing without getting anywhere: a jam, the motor supply off, or the motor wires
@@ -276,7 +300,7 @@ void setup() {
   analogSetPinAttenuation(PIN_WIPER, ADC_11db);
 
   int pos = readPosition();
-  target = pos; setpoint = pos; lastPos = pos; lastUs = micros();
+  target = pos; setpoint = pos; tSmooth = pos; lastPos = pos; lastUs = micros();
   mode = REST;                                        // stay put until told otherwise
 }
 
