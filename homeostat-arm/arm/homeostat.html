@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homeostat 4-D Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: lab bench. Four black unit boxes (2x2, as wired) on the left, the 4-D view on the right,
+   timer and export strip underneath. One visual world (paper + black instrument boxes), single theme. */
+:root {
+  --paper: #f1efe9;
+  --panel: #fbfaf6;
+  --box: #1b1c1e;
+  --ink: #1d1e20;
+  --muted: #6c6a64;
+  --rule: #d5d1c7;
+  --accent: #b5452b;      /* relay/limit red, as on the dials */
+  --box-ink: #ecebe6;
+  --box-dim: #8f8e89;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.45 var(--body); }
+main { max-width: 1320px; margin: 0 auto; padding: 18px 16px 40px; display: grid; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+h1 { font: 600 24px/1.1 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 70ch; }
+h2 { font: 600 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+
+.bench { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 980px) { .bench { grid-template-columns: 1fr; } }
+
+.units { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.unit { background: var(--box); color: var(--box-ink); border-radius: 4px; padding: 10px 12px 12px; display: grid; gap: 4px; }
+.unit-head { display: flex; align-items: baseline; gap: 8px; }
+.unit-name { font: 600 18px/1 var(--display); }
+.unit-where { font-size: 11px; color: var(--box-dim); }
+.unit canvas { width: 100%; height: auto; aspect-ratio: 2 / 1.15; display: block; cursor: grab; touch-action: none; }
+.unit canvas:active { cursor: grabbing; }
+.readout { font: 12px/1.3 var(--mono); font-variant-numeric: tabular-nums; text-align: center; min-height: 1.3em; }
+.readout.f { color: #ff7b66; }
+.dctl { display: grid; gap: 2px; }
+.dctl label { font-size: 11px; color: var(--box-dim); display: flex; justify-content: space-between; }
+.dctl .ends { display: flex; justify-content: space-between; font-size: 10px; }
+.dctl .ends span:first-child { color: #79c97a; } .dctl .ends span:last-child { color: #ff8a7a; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+
+.view { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 10px; display: grid; gap: 8px; }
+#plot { width: 100%; aspect-ratio: 1; display: block; cursor: grab; touch-action: none; background: #fff; border-radius: 2px; }
+.caption { font-size: 12px; color: var(--muted); }
+
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 14px; display: grid; gap: 10px; align-content: start; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.row > label { font-size: 12px; color: var(--muted); }
+.field { display: grid; gap: 3px; }
+.field label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.field output, .num { font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+select, input[type=number], button {
+  font: 13px var(--body); color: var(--ink); background: #fff; border: 1px solid var(--rule); border-radius: 3px; padding: 6px 9px;
+}
+input[type=number] { width: 7.5em; font-family: var(--mono); }
+button { cursor: pointer; background: #fff; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+#log { font: 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; white-space: pre; overflow-x: auto; margin: 0; min-height: 6.2em; color: var(--ink); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { border-left: 3px solid var(--rule); padding-left: 8px; }
+.stat b { display: block; font: 500 18px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: var(--muted); }
+.note { font-size: 12px; color: var(--muted); margin: 0; max-width: 70ch; }
+#status { font-size: 12px; color: var(--accent); min-height: 1.2em; }
+@media (prefers-reduced-motion: reduce) { #plot { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Homeostat 4-D Path</h1>
+    <p>PT's minimal Homeostat model: four units of magnet and trough, coupled all-to-all, with 25-position uniselectors and a shared timer. The four deflections (TL, TR, BR, BL) form one point in 4-D, drawn inside the ±45° tesseract.</p>
+  </header>
+
+  <section class="bench">
+    <div>
+      <div class="units" id="units"></div>
+    </div>
+    <div class="view">
+      <canvas id="plot" width="900" height="900" aria-label="4-D path of the four deflections, projected"></canvas>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="spin" checked> 4-D spin</label>
+        <button id="clearPath">Clear path</button>
+        <button id="resetView">Reset view</button>
+        <span class="caption">Drag to turn in 3-D. Colour = the unit(s) whose uniselector stepped last.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <div class="card">
+      <h2>Run</h2>
+      <div class="row">
+        <button class="primary" id="run">Pause</button>
+        <button id="reset">Restart</button>
+        <label for="preset">Preset</label>
+        <select id="preset"></select>
+      </div>
+      <div class="row">
+        <label for="seed">Seed</label><input type="number" id="seed">
+        <label class="check"><input type="checkbox" id="signed" checked> Uniselector can reverse polarity</label>
+      </div>
+      <div class="field">
+        <label for="period">Timer interval <output id="periodOut"></output></label>
+        <input type="range" id="period" min="1" max="10" step="0.5">
+      </div>
+      <div class="field">
+        <label for="speed">Run speed <output id="speedOut"></output></label>
+        <input type="range" id="speed" min="0" max="5" step="1" value="2">
+      </div>
+      <p class="note">Restart applies the preset, seed and polarity setting. Model time per frame is fixed (3 RK4 steps of 10 ms), so a given seed always traces the same path at any speed.</p>
+    </div>
+
+    <div class="card" id="faderCard">
+      <h2>TL fader</h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="faderOn"> TL drives the fader, and a hand on the fader holds TL</label>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="fDeg">–</b><span>fader, degrees</span></div>
+        <div class="stat"><b id="fMode">–</b><span>fader is</span></div>
+        <div class="stat"><b id="fLag">–</b><span>behind TL, degrees</span></div>
+      </div>
+      <div id="faderStatus" class="note" role="status"></div>
+      <p class="note">The motorised fader on USB plays TL's needle: it follows TL, and when you take hold of it and push, it lets go and holds TL wherever you put it, the same as dragging TL's dial. Let go and leave it still for a moment, and TL carries on from there. The fader works through the layout editor it is plugged into (this page's own server); <a href="/fader" target="_blank" rel="noopener">its own page</a> shows it alone.</p>
+    </div>
+
+    <div class="card">
+      <h2>Timer and uniselectors</h2>
+      <div class="stats">
+        <div class="stat"><b id="tOut">0.0</b><span>model time, s</span></div>
+        <div class="stat"><b id="pulsesOut">0</b><span>pulses</span></div>
+        <div class="stat"><b id="stepsOut">0</b><span>uniselector steps</span></div>
+      </div>
+      <pre id="log"></pre>
+    </div>
+
+    <div class="card">
+      <h2>Export for arm and extruder</h2>
+      <div class="stats">
+        <div class="stat"><b id="ptsOut">0</b><span>path points</span></div>
+        <div class="stat"><b id="runsOut">0</b><span>colour runs (pens)</span></div>
+        <div class="stat"><b id="lenOut">0</b><span>2-D length, mm</span></div>
+      </div>
+      <div class="row">
+        <label for="mm">Tesseract edge (±45°) =</label><input type="number" id="mm" value="120" min="10" step="10"><span class="num">mm</span>
+      </div>
+      <div class="row">
+        <button id="exSvg">Arm drawing (.svg)</button>
+        <button id="exXyz">3-D path (.csv)</button>
+        <button id="exRaw">4-D data (.csv)</button>
+      </div>
+      <div class="row">
+        <button class="primary" id="exArm">Send to the arm</button>
+        <a id="editorLink" href="/" target="_blank" rel="noopener" hidden>Layout editor</a>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="withCube" checked> Include tesseract in drawing</label>
+      </div>
+      <div id="status" role="status"></div>
+      <p class="note">Exports use the view as it is now; untick 4-D spin first to hold an angle. The SVG is the 2-D projection on screen, one polyline per colour (one pen each). The 3-D path is the 4-D perspective step only, before the 3-D turn: x, y, z in mm, ready to sweep a tube along. Send to the arm passes that same path to the layout editor on armster, where it is placed, planned and run. Both skip samples that moved under 0.25°, so the settled tail doesn't pile up; the 4-D data keeps every sample.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* ---------------- Python-compatible random (MT19937, as in CPython's random module) ---------------- */
+class PyRandom {
+  constructor(seed) { this.mt = new Uint32Array(624); this.mti = 625; this.seed(seed); }
+  initGenrand(s) {
+    const mt = this.mt; mt[0] = s >>> 0;
+    for (let i = 1; i < 624; i++) mt[i] = (Math.imul(1812433253, mt[i - 1] ^ (mt[i - 1] >>> 30)) + i) >>> 0;
+    this.mti = 624;
+  }
+  seed(n) {                                   // random.seed(int): key = 32-bit words of abs(n)
+    n = Math.abs(Math.trunc(n)); const key = [];
+    if (n === 0) key.push(0);
+    while (n > 0) { key.push(n % 4294967296); n = Math.floor(n / 4294967296); }
+    this.initGenrand(19650218); const mt = this.mt;
+    let i = 1, j = 0, k = Math.max(624, key.length);
+    for (; k; k--) {
+      mt[i] = ((mt[i] ^ Math.imul(mt[i - 1] ^ (mt[i - 1] >>> 30), 1664525)) + key[j] + j) >>> 0;
+      i++; j++; if (i >= 624) { mt[0] = mt[623]; i = 1; } if (j >= key.length) j = 0;
+    }
+    for (k = 623; k; k--) {
+      mt[i] = ((mt[i] ^ Math.imul(mt[i - 1] ^ (mt[i - 1] >>> 30), 1566083941)) - i) >>> 0;
+      i++; if (i >= 624) { mt[0] = mt[623]; i = 1; }
+    }
+    mt[0] = 0x80000000;
+  }
+  u32() {
+    const mt = this.mt; let y;
+    if (this.mti >= 624) {
+      for (let kk = 0; kk < 624; kk++) {
+        y = (mt[kk] & 0x80000000) | (mt[(kk + 1) % 624] & 0x7fffffff);
+        mt[kk] = mt[(kk + 397) % 624] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      }
+      this.mti = 0;
+    }
+    y = mt[this.mti++];
+    y ^= y >>> 11; y ^= (y << 7) & 0x9d2c5680; y ^= (y << 15) & 0xefc60000; y ^= y >>> 18;
+    return y >>> 0;
+  }
+  random() { const a = this.u32() >>> 5, b = this.u32() >>> 6; return (a * 67108864 + b) / 9007199254740992; }
+  getrandbits(k) { return this.u32() >>> (32 - k); }      // k <= 32
+  randbelow(n) { const k = Math.floor(Math.log2(n)) + 1; let r = this.getrandbits(k); while (r >= n) r = this.getrandbits(k); return r; }
+  choice(seq) { return seq[this.randbelow(seq.length)]; }
+  uniform(a, b) { return a + (b - a) * this.random(); }
+}
+
+/* ---------------- PT's model (essential_Homeostat_EN_physically_realistic), ported line for line ---------------- */
+const N = 4, POS = 25, LIMIT = 45.0, STOP = 50.0, DT = 0.01;
+const GAIN = 4.0, DAMP = 4.0, SAT = 80.0, I_MAX = 80.0;
+const PRESETS = [   // found by PT's search_spiral.py for this model
+  { name: "435017 · 10 s (default)", seed: 435017, D: [-0.8, -0.8, -0.5, -0.3], x0: [-5, 10, -17, 49], period: 2.0 },
+  { name: "104283 · 12 s edges, deep spiral", seed: 104283, D: [0.1, 0.0, -0.9, -0.5], x0: [-43, -6, 28, -17], period: 1.5 },
+  { name: "489235 · 18 s, 97% periphery", seed: 489235, D: [-0.3, -0.5, 0.4, -0.7], x0: [-47, -47, 31, -35], period: 2.5 },
+  { name: "186963 · 22 s, most conical", seed: 186963, D: [-0.2, -0.9, 0.1, -0.5], x0: [28, 28, 3, 33], period: 2.0 },
+  { name: "476128 · 9 s, 8.3 turns", seed: 476128, D: [-0.7, -0.8, 0.0, -0.3], x0: [-49, 46, 22, 24], period: 3.0 },
+  { name: "634613 · 9 s, deepest", seed: 634613, D: [-0.3, -0.9, -0.9, -0.7], x0: [-45, 10, -8, 22], period: 3.0 },
+];
+const NAMES = ["TL", "TR", "BR", "BL"], FULL = ["top left", "top right", "bottom right", "bottom left"];
+const COLORS = ["#d62728", "#1f77b4", "#9467bd", "#2ca02c"];
+
+function makeSchedule(seed, signed) {
+  const rng = new PyRandom(seed);
+  const s = [];
+  for (let i = 0; i < N; i++) {
+    const rows = [];
+    for (let p = 0; p < POS; p++) {
+      const row = [];
+      for (let j = 0; j < N; j++) {
+        if (j === i) { row.push(0); continue; }
+        const sign = rng.choice([-1, 1]), mag = rng.uniform(0.1, 1.0);   // same draw order as PT's code
+        row.push((signed ? sign : 1) * mag);
+      }
+      rows.push(row);
+    }
+    s.push(rows);
+  }
+  return s;
+}
+const out = th => I_MAX * Math.tanh(th / SAT);
+const rad = d => d * Math.PI / 180;
+function mix(cols) {
+  const rgb = cols.map(c => [1, 3, 5].map(k => parseInt(c.slice(k, k + 2), 16)));
+  return "#" + [0, 1, 2].map(ch => Math.floor(rgb.reduce((a, r) => a + r[ch], 0) / rgb.length).toString(16).padStart(2, "0")).join("");
+}
+
+function newModel(cfg) {
+  return { cfg, schedule: makeSchedule(cfg.seed, cfg.signed), D: cfg.D.slice(), q: [0, 0, 0, 0], x: cfg.x0.slice(), v: [0, 0, 0, 0],
+           held: [false, false, false, false], t: 0, nextPulse: cfg.period, period: cfg.period,
+           events: [], lastCol: "#444444", hist: [], pulses: 0, steps: 0 };
+}
+function accel(m, th, om) {
+  const g = th.map(out), a = [];
+  for (let i = 0; i < N; i++) {
+    const row = m.schedule[i][m.q[i]];
+    let s = 0; for (let j = 0; j < N; j++) s += row[j] * g[j];
+    a.push(GAIN * Math.cos(rad(th[i])) * (s + m.D[i] * g[i]) - DAMP * om[i]);
+  }
+  return a;
+}
+function frame(m) {                       // one GUI frame of PT's loop(): 30 ms of model time
+  const { x, v } = m;
+  for (let r = 0; r < 3; r++) {
+    const a1 = accel(m, x, v);
+    const x1 = x.map((xi, i) => xi + 0.5 * DT * v[i]), v1 = v.map((vi, i) => vi + 0.5 * DT * a1[i]), a2 = accel(m, x1, v1);
+    const x2 = x.map((xi, i) => xi + 0.5 * DT * v1[i]), v2 = v.map((vi, i) => vi + 0.5 * DT * a2[i]), a3 = accel(m, x2, v2);
+    const x3 = x.map((xi, i) => xi + DT * v2[i]), v3 = v.map((vi, i) => vi + DT * a3[i]), a4 = accel(m, x3, v3);
+    for (let i = 0; i < N; i++) {
+      if (m.held[i]) { v[i] = 0; continue; }
+      x[i] += DT / 6 * (v[i] + 2 * v1[i] + 2 * v2[i] + v3[i]);
+      v[i] += DT / 6 * (a1[i] + 2 * a2[i] + 2 * a3[i] + a4[i]);
+      if (Math.abs(x[i]) > STOP) { x[i] = Math.max(-STOP, Math.min(STOP, x[i])); v[i] = 0; }
+    }
+    m.t += DT;
+    if (m.t >= m.nextPulse - 1e-9) {     // timer pulse: relay F closed -> step
+      m.nextPulse = m.t + m.period; m.pulses++;
+      const F = x.map(xi => Math.abs(out(xi)) > out(LIMIT));
+      const stepped = NAMES.filter((_, i) => F[i]);
+      for (let i = 0; i < N; i++) if (F[i]) { m.q[i] = (m.q[i] + 1) % POS; m.steps++; }
+      if (stepped.length) m.lastCol = mix(COLORS.filter((_, i) => F[i]));
+      m.events.push(`t=${m.t.toFixed(1).padStart(6)}  pulse  ` + (stepped.length ? `stepped ${stepped.join(", ")}  → pos ${m.q.map(p => p + 1).join("/")}` : "all within limits"));
+    }
+  }
+  m.hist.push([x[0], x[1], x[2], x[3], m.lastCol, m.t, m.q.slice()]);
+}
+// for checking against PT's Python: run a preset headless for n frames
+window.homeostatHeadless = (presetIndex, n) => {
+  const p = PRESETS[presetIndex]; const m = newModel({ ...p, signed: true });
+  for (let k = 0; k < n; k++) frame(m);
+  return { hist: m.hist.map(h => h.slice(0, 4)), sched00: m.schedule[0][0], sched3_24: m.schedule[3][24], events: m.events.length };
+};
+
+/* ---------------- 4-D projection (as in PT's proj) ---------------- */
+const EYE = 3.5 * STOP;
+const view = { yaw: 0.5, pitch: 0.3, xw: 0, yw: 0.4 };
+const turn = (a, b, ang) => [a * Math.cos(ang) - b * Math.sin(ang), a * Math.sin(ang) + b * Math.cos(ang)];
+function to3(p) {                          // two 4-D rotations, then perspective along w
+  let [px, py, pz, pw] = p;
+  [px, pw] = turn(px, pw, view.xw); [py, pw] = turn(py, pw, view.yw);
+  const k = EYE / (EYE - pw); return [px * k, py * k, pz * k];
+}
+function to2(p) {                          // 3-D view (yaw, pitch); y up
+  let [px, py, pz] = to3(p);
+  [px, pz] = turn(px, pz, view.yaw); [py, pz] = turn(py, pz, view.pitch);
+  return [px, py];
+}
+const L = LIMIT, CORNERS = [];
+for (const a of [-L, L]) for (const b of [-L, L]) for (const c of [-L, L]) for (const d of [-L, L]) CORNERS.push([a, b, c, d]);
+const EDGES = [];
+CORNERS.forEach((a, i) => CORNERS.forEach((b, j) => { if (i < j && a.filter((u, k) => u !== b[k]).length === 1) EDGES.push([a, b]); }));
+
+/* ---------------- UI ---------------- */
+const $ = id => document.getElementById(id);
+let model, running = true;
+const ORDER = [0, 1, 3, 2];                 // grid: TL TR / BL BR
+const unitEls = [];
+ORDER.forEach(i => {
+  const el = document.createElement("div"); el.className = "unit";
+  el.innerHTML = `<div class="unit-head"><span class="unit-name" style="color:${COLORS[i]}">${NAMES[i]}</span><span class="unit-where">${FULL[i]}</span></div>
+    <canvas width="440" height="253" aria-label="dial of unit ${NAMES[i]}; drag to hold the magnet"></canvas>
+    <div class="readout"></div>
+    <div class="dctl"><label for="d${i}">coil D: self-feedback <output class="num" style="color:inherit"></output></label>
+    <input type="range" id="d${i}" min="-1" max="1" step="0.1"><div class="ends"><span>← self-correcting</span><span>self-aggravating →</span></div></div>`;
+  $("units").appendChild(el);
+  const cv = el.querySelector("canvas"), slider = el.querySelector("input");
+  unitEls[i] = { cv, ctx: cv.getContext("2d"), read: el.querySelector(".readout"), slider, dOut: el.querySelector("output") };
+  slider.addEventListener("input", () => { model.D[i] = +slider.value; unitEls[i].dOut.textContent = (+slider.value).toFixed(1); });
+  const hold = (ev, down) => {
+    const r = cv.getBoundingClientRect(), sx = cv.width / r.width;
+    const px = (ev.clientX - r.left) * sx, py = (ev.clientY - r.top) * sx;
+    const cx = cv.width / 2, cy = cv.height * 0.86;
+    model.x[i] = Math.max(-STOP, Math.min(STOP, Math.atan2(px - cx, cy - py) * 180 / Math.PI)); model.v[i] = 0; model.held[i] = down;
+  };
+  cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); hold(e, true); });
+  cv.addEventListener("pointermove", e => { if (model.held[i]) hold(e, true); });
+  cv.addEventListener("pointerup", () => { model.held[i] = false; });
+  cv.addEventListener("pointercancel", () => { model.held[i] = false; });
+});
+
+function drawDial(i) {
+  const { cv, ctx } = unitEls[i], W = cv.width, H = cv.height, cx = W / 2, cy = H * 0.86, R = H * 0.74;
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineWidth = 3; ctx.strokeStyle = "#ecebe6";
+  ctx.beginPath(); ctx.arc(cx, cy, R, rad(-90 - STOP), rad(-90 + STOP)); ctx.stroke();
+  ctx.font = "500 15px 'IBM Plex Mono', monospace"; ctx.textAlign = "center";
+  for (const a of [-LIMIT, 0, LIMIT]) {
+    const s = Math.sin(rad(a)), c = Math.cos(rad(a));
+    ctx.strokeStyle = a ? "#ff5a45" : "#8f8e89"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx + (R - 14) * s, cy - (R - 14) * c); ctx.lineTo(cx + R * s, cy - R * c); ctx.stroke();
+    if (a) { ctx.fillStyle = "#ff8a7a"; ctx.fillText((a > 0 ? "+" : "−") + "45°", cx + (R - 34) * s, cy - (R - 34) * c + 5); }
+  }
+  const s = Math.sin(rad(model.x[i])), c = Math.cos(rad(model.x[i]));
+  ctx.strokeStyle = COLORS[i]; ctx.lineWidth = 7; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (R - 18) * s, cy - (R - 18) * c); ctx.stroke();
+  ctx.fillStyle = "#ecebe6"; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill();
+  if (i === 0 && faderLink.on && faderLink.s && faderLink.s.deg != null && !faderLink.holding) {   // where the fader is, as a short white tick
+    const fs = Math.sin(rad(faderLink.s.deg)), fc = Math.cos(rad(faderLink.s.deg));
+    ctx.strokeStyle = "#ecebe6"; ctx.lineWidth = 3; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx + (R + 4) * fs, cy - (R + 4) * fc); ctx.lineTo(cx + (R + 16) * fs, cy - (R + 16) * fc); ctx.stroke();
+  }
+  const F = Math.abs(model.x[i]) > LIMIT, rd = unitEls[i].read;
+  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}${i === 0 && faderLink.holding ? "   held at the fader" : ""}`;
+  rd.classList.toggle("f", F);
+}
+
+const plot = $("plot"), pctx = plot.getContext("2d");
+function drawPlot() {
+  const S = plot.width, sc = S / 2 * 0.92 / 100, X = p => S / 2 + sc * p[0], Y = p => S / 2 - sc * p[1];
+  pctx.clearRect(0, 0, S, S);
+  pctx.lineWidth = 1.2; pctx.strokeStyle = "#f2a59a"; pctx.setLineDash([3, 5]);
+  for (const [a, b] of EDGES) { const p = to2(a), q = to2(b); pctx.beginPath(); pctx.moveTo(X(p), Y(p)); pctx.lineTo(X(q), Y(q)); pctx.stroke(); }
+  pctx.setLineDash([]); pctx.font = "500 18px 'IBM Plex Mono', monospace"; pctx.textAlign = "center";
+  NAMES.forEach((n, k) => {
+    const e = [0, 0, 0, 0]; e[k] = STOP; const o = to2([0, 0, 0, 0]), p = to2(e), t = to2(e.map(v => v * 1.14));
+    pctx.strokeStyle = "#a9a7a0"; pctx.lineWidth = 1.5; pctx.beginPath(); pctx.moveTo(X(o), Y(o)); pctx.lineTo(X(p), Y(p)); pctx.stroke();
+    pctx.fillStyle = COLORS[k]; pctx.fillText(n, X(t), Y(t) + 6);
+  });
+  const h = model.hist; if (!h.length) return;
+  const step = Math.max(1, Math.floor(h.length / 2500));
+  const thin = []; for (let k = 0; k < h.length; k += step) thin.push(h[k]); if (thin[thin.length - 1] !== h[h.length - 1]) thin.push(h[h.length - 1]);
+  pctx.lineWidth = 1.6; pctx.lineJoin = "round";
+  let prev = to2(thin[0]);
+  for (let k = 1; k < thin.length; k++) {
+    const p = to2(thin[k]); pctx.strokeStyle = thin[k][4];
+    pctx.beginPath(); pctx.moveTo(X(prev), Y(prev)); pctx.lineTo(X(p), Y(p)); pctx.stroke(); prev = p;
+  }
+  pctx.fillStyle = "#1d1e20"; pctx.beginPath(); pctx.arc(X(prev), Y(prev), 6, 0, 7); pctx.fill();
+}
+let drag = null;
+plot.addEventListener("pointerdown", e => { plot.setPointerCapture(e.pointerId); drag = [e.clientX, e.clientY]; });
+plot.addEventListener("pointermove", e => { if (!drag) return; view.yaw += (e.clientX - drag[0]) * 0.01; view.pitch += (e.clientY - drag[1]) * 0.01; drag = [e.clientX, e.clientY]; });
+plot.addEventListener("pointerup", () => drag = null);
+$("resetView").onclick = () => Object.assign(view, { yaw: 0.5, pitch: 0.3, xw: 0, yw: 0.4 });
+$("clearPath").onclick = () => { model.hist = model.hist.slice(-1); };
+
+PRESETS.forEach((p, k) => $("preset").add(new Option(p.name, k)));
+$("preset").onchange = () => { const p = PRESETS[$("preset").value]; $("seed").value = p.seed; restart(); };
+function restart() {
+  const p = PRESETS[$("preset").value];
+  model = newModel({ ...p, seed: +$("seed").value || p.seed, signed: $("signed").checked });
+  $("period").value = p.period;
+  ORDER.forEach(i => { unitEls[i].slider.value = model.D[i]; unitEls[i].dOut.textContent = model.D[i].toFixed(1); });
+  view.xw = 0;
+}
+$("reset").onclick = restart;
+$("signed").onchange = restart;
+$("run").onclick = () => { running = !running; $("run").textContent = running ? "Pause" : "Run"; };
+const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+$("period").oninput = () => { model.period = +$("period").value; };
+
+let acc = 0, last = performance.now();
+function tick(now) {
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  if (running) {
+    acc = Math.min(acc + dt * SPEEDS[$("speed").value], 0.6);
+    while (acc >= 0.03) { frame(model); acc -= 0.03; }
+  }
+  if ($("spin").checked) view.xw += 0.003;
+  NAMES.forEach((_, i) => drawDial(i));
+  drawPlot();
+  $("periodOut").textContent = (+$("period").value).toFixed(1) + " s";
+  $("speedOut").textContent = "×" + SPEEDS[$("speed").value];
+  $("tOut").textContent = model.t.toFixed(1); $("pulsesOut").textContent = model.pulses; $("stepsOut").textContent = model.steps;
+  $("log").textContent = model.events.slice(-6).join("\n");
+  if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) updateExportStats();
+  requestAnimationFrame(tick);
+}
+
+/* ---------------- Exports ---------------- */
+const mmPerDeg = () => (+$("mm").value || 120) / (2 * LIMIT);
+function movingHist() {                    // drop samples that moved under 0.25° in 4-D (the settled tail piles up otherwise)
+  const h = model.hist, kept = h.length ? [h[0]] : [];
+  for (const p of h) { const q = kept[kept.length - 1]; if (p[4] !== q[4] || Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2], p[3] - q[3]) > 0.25) kept.push(p); }
+  if (h.length > 1 && kept[kept.length - 1] !== h[h.length - 1]) kept.push(h[h.length - 1]);
+  return kept;
+}
+function colourRuns() {                    // split the path wherever the colour (pen) changes
+  const runs = []; let cur = null;
+  for (const h of movingHist()) {
+    if (!cur || cur.col !== h[4]) { const start = cur ? [cur.pts[cur.pts.length - 1]] : []; cur = { col: h[4], pts: start }; runs.push(cur); }
+    cur.pts.push(h);
+  }
+  return runs;
+}
+function updateExportStats() {
+  const k = mmPerDeg(); let len = 0, prev = null;
+  const mh = movingHist();
+  for (const h of mh) { const p = to2(h); if (prev) len += Math.hypot(p[0] - prev[0], p[1] - prev[1]); prev = p; }
+  $("ptsOut").textContent = mh.length; $("runsOut").textContent = colourRuns().length; $("lenOut").textContent = Math.round(len * k);
+}
+function buildSvg() {
+  const k = mmPerDeg(), half = 70 * k, f = v => (v * k).toFixed(2);
+  const lines = [];
+  lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${(2 * half).toFixed(1)}mm" height="${(2 * half).toFixed(1)}mm" viewBox="${(-half).toFixed(2)} ${(-half).toFixed(2)} ${(2 * half).toFixed(2)} ${(2 * half).toFixed(2)}">`);
+  lines.push(`<!-- Homeostat 4-D path, seed ${model.cfg.seed}, t = ${model.t.toFixed(2)} s; view yaw ${view.yaw.toFixed(4)} pitch ${view.pitch.toFixed(4)} xw ${view.xw.toFixed(4)} yw ${view.yw.toFixed(4)}; ${f(1)} mm per degree; y up is drawn as -y -->`);
+  if ($("withCube").checked) {
+    lines.push(`<g id="tesseract" fill="none" stroke="#e08b7d" stroke-width="0.3">`);
+    for (const [a, b] of EDGES) { const p = to2(a), q = to2(b); lines.push(`<line x1="${f(p[0])}" y1="${f(-p[1])}" x2="${f(q[0])}" y2="${f(-q[1])}"/>`); }
+    lines.push(`</g>`);
+  }
+  lines.push(`<g id="path" fill="none" stroke-width="0.4" stroke-linejoin="round">`);
+  colourRuns().forEach((r, n) => {
+    if (r.pts.length < 2) return;
+    lines.push(`<polyline id="run${n}" stroke="${r.col}" points="${r.pts.map(h => { const p = to2(h); return f(p[0]) + "," + f(-p[1]); }).join(" ")}"/>`);
+  });
+  lines.push(`</g></svg>`);
+  return lines.join("\n");
+}
+function buildXyz() {
+  const k = mmPerDeg();
+  const rows = ["# 3-D path from the 4-D perspective step (before the 3-D view turn). mm. seed " + model.cfg.seed + ", xw " + view.xw.toFixed(4) + ", yw " + view.yw.toFixed(4), "t_s,x_mm,y_mm,z_mm,colour"];
+  for (const h of movingHist()) { const p = to3(h); rows.push([h[5].toFixed(2), ...p.map(v => (v * k).toFixed(3)), h[4]].join(",")); }
+  return rows.join("\n");
+}
+function buildRaw() {
+  const rows = ["# Homeostat deflections in degrees, one row per 30 ms of model time. seed " + model.cfg.seed + ", D " + model.D.join("/"),
+                "t_s,TL_deg,TR_deg,BR_deg,BL_deg,pos_TL,pos_TR,pos_BR,pos_BL,colour"];
+  for (const h of model.hist) rows.push([h[5].toFixed(2), h[0].toFixed(4), h[1].toFixed(4), h[2].toFixed(4), h[3].toFixed(4), ...h[6].map(q => q + 1), h[4]].join(","));
+  return rows.join("\n");
+}
+let downloads = null;
+if (window.claude && window.claude.use) window.claude.use("downloads").then(d => { downloads = d; }).catch(() => {});
+async function offer(filename, data, type) {
+  const st = $("status"); st.textContent = "";
+  try {
+    if (downloads) { await downloads.save({ filename, data }); st.textContent = `Saved ${filename}.`; return; }
+    if (location.protocol === "file:" || location.hostname === "localhost") {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = filename; a.click();
+      st.textContent = `Saved ${filename}.`; return;
+    }
+    await navigator.clipboard.writeText(data);
+    st.textContent = `This view can't save files, so ${filename} was copied to the clipboard instead (${Math.round(data.length / 1024)} KB).`;
+  } catch (e) { st.textContent = `Couldn't save ${filename}: ${e && e.message ? e.message : e}.`; }
+}
+const stamp = () => `homeostat_${model.cfg.seed}_t${Math.round(model.t)}s`;
+$("exSvg").onclick = () => offer(stamp() + "_arm.svg", buildSvg(), "image/svg+xml");
+$("exXyz").onclick = () => offer(stamp() + "_path3d.csv", buildXyz(), "text/csv");
+$("exRaw").onclick = () => offer(stamp() + "_4d.csv", buildRaw(), "text/csv");
+
+// Send to the arm: the same 3-D path as the .csv, as JSON, to the layout editor that serves this page.
+// Opened as a file (no editor behind it), it saves the JSON instead, to load in the editor by hand.
+function buildArm() {
+  const k = mmPerDeg();
+  return { format: "homeostat-path/1", seed: model.cfg.seed, preset: PRESETS[$("preset").value].name,
+           t_end: +model.t.toFixed(2), view: { xw: +view.xw.toFixed(5), yw: +view.yw.toFixed(5) },
+           mm_per_90: +$("mm").value || 120,
+           points: movingHist().map(h => [+h[5].toFixed(3), ...to3(h).map(v => +(v * k).toFixed(3))]) };
+}
+const served = location.protocol.startsWith("http") && location.pathname.replace(/\/$/, "").endsWith("/sim");
+if (served) $("editorLink").hidden = false;
+$("exArm").onclick = async () => {
+  const d = buildArm(), st = $("status");
+  if (d.points.length < 20) { st.textContent = "Let it run a little first: there's hardly any path yet."; return; }
+  if (!served) { await offer(stamp() + "_arm.json", JSON.stringify(d), "application/json"); st.textContent += " Load it in the layout editor with Load a file."; return; }
+  const tab = window.open("", "homeostat-editor");      // the print page: the same tab each time
+  st.textContent = "Sending…";
+  try {
+    const r = await fetch("/api/import", { method: "POST", body: JSON.stringify(d) }), res = await r.json();
+    if (!r.ok) throw new Error(res.error || r.status);
+    const url = "/?import=" + encodeURIComponent(res.name);
+    st.innerHTML = `Sent ${d.points.length} points (t 0 to ${d.t_end.toFixed(1)} s) as ${res.name}, and opened it on the print page. ` +
+                   `<a href="${url}" target="homeostat-editor">Open it again</a>.`;
+    if (tab) { tab.location.href = url; tab.focus(); } else location.href = url;   // pop-ups blocked: go there in this tab
+  } catch (e) { if (tab) tab.close(); st.textContent = "Couldn't send it: " + (e && e.message ? e.message : e) + "."; }
+};
+
+/* ---------------- TL fader: the motorised fader on USB, through the editor's /api/fader ----------------
+   20 times a second: tell it where TL is, and hear back where it is. When a hand holds the fader it says
+   "held", and TL is held there (as dragging the dial does) until the hand lets go. */
+// Every open copy of this page runs its own homeostat, so the fader follows one page at a time:
+// ticking the box claims it, and a page that loses it to another unticks itself and says so.
+const faderLink = { on: false, busy: false, holding: false, s: null, firstVersion: null, claim: false,
+                    id: Math.random().toString(36).slice(2, 10) };
+function faderOff(why) {
+  faderLink.on = false; $("faderOn").checked = false;
+  if (faderLink.holding) { model.held[0] = false; faderLink.holding = false; }
+  if (why) $("faderStatus").textContent = why;
+}
+$("faderOn").onchange = () => {
+  if (!$("faderOn").checked) return faderOff("");
+  faderLink.on = true; faderLink.claim = true;
+  if (!served) $("faderStatus").textContent = "Open this page from the layout editor (…:8792/sim) to reach the fader.";
+};
+async function faderTick() {
+  if (!faderLink.on || faderLink.busy || !served) return;
+  faderLink.busy = true;
+  try {
+    const q = "?id=" + faderLink.id + (faderLink.claim ? "&claim=1" : "") + (faderLink.holding ? "" : "&tl=" + model.x[0].toFixed(2));
+    const s = await (await fetch("/api/fader" + q)).json();
+    faderLink.claim = false;
+    if (s.driving === false) {
+      faderOff("Another open sim page has the fader now (each page runs its own homeostat). Tick the box again to take it back.");
+      return;
+    }
+    faderLink.s = s;
+    const live = s.connected && !s.error && s.deg != null;
+    if (live && s.mode === "held") {                    // a hand has it: TL goes where the hand puts it
+      model.x[0] = s.deg; model.v[0] = 0; model.held[0] = true; faderLink.holding = true;
+    } else if (faderLink.holding) {                     // let go: TL carries on from there
+      model.held[0] = false; faderLink.holding = false;
+    }
+    if (s.version && faderLink.firstVersion === null) faderLink.firstVersion = s.version;
+    $("fDeg").textContent = live ? (s.deg >= 0 ? "+" : "") + s.deg.toFixed(1) : "–";
+    $("fMode").textContent = live ? ({ held: "held", follow: "moving", rest: "still", fault: "stopped (fault)" }[s.mode] || s.mode) : "–";
+    $("fLag").textContent = live && !faderLink.holding ? Math.abs(model.x[0] - s.deg).toFixed(1) : "–";
+    $("faderStatus").textContent = s.error ? s.error :
+      `on ${s.port}, firmware ${s.version || "?"}` +
+      (faderLink.firstVersion && s.version !== faderLink.firstVersion ? " (reflashed since this page opened)" : "") +
+      (s.note ? ` · last said: ${s.note}` : "");
+  } catch (e) {
+    $("faderStatus").textContent = "Couldn't reach the editor: " + (e && e.message ? e.message : e);
+  } finally { faderLink.busy = false; }
+}
+setInterval(faderTick, 50);
+
+$("preset").value = 0; $("seed").value = PRESETS[0].seed;
+restart();
+requestAnimationFrame(tick);
+</script>
+
+<div id="verTag" style="position:fixed;right:8px;bottom:6px;font:11px system-ui;color:#8a887f;z-index:50"></div>
+<div id="verNew" hidden style="position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#8a5a00;color:#fff;padding:10px 16px;border-radius:6px;font:15px system-ui;cursor:pointer">
+  The software on armster has been updated. <b><u>Reload this page</u></b> to use it.</div>
+<script>
+// which version is running on armster, and a nudge when it changes under an open page
+(() => {
+  let seen = null;
+  const tag = document.getElementById("verTag"), nw = document.getElementById("verNew");
+  nw.onclick = () => location.reload();
+  const fmt = v => v.label || v.commit;
+  async function check() {
+    try {
+      const v = await (await fetch("/api/version")).json(), key = v.commit + "/" + (v.deployed || "") + "/" + (v.changes || 0);
+      if (seen === null) { seen = key; tag.textContent = "version " + fmt(v); tag.title = v.deployed ? "deployed " + v.deployed : ""; }
+      else if (key !== seen) { nw.hidden = false; tag.textContent = "version " + fmt(v) + " on armster (this page is older)"; }
+    } catch (e) { /* not served by the editor, or it is restarting */ }
+  }
+  check(); setInterval(check, 15000);
+})();
+</script>
+</body>
+</html>

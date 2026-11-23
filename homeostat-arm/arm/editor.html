@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Homeostat print: layout editor</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #f6f5f1; color: #1d1e20; }
+  main { display: flex; gap: 16px; padding: 14px; align-items: flex-start; }
+  .stage { flex: 1; min-width: 0; position: relative; }
+  canvas { display: block; width: 100%; aspect-ratio: 4 / 3; background: #fff; border: 1px solid #dddcd6; border-radius: 6px; touch-action: none; }
+  .hint { position: absolute; bottom: 10px; left: 12px; right: 12px; color: #66655f; font-size: 12px; pointer-events: none; }
+  aside { width: 360px; flex: none; }
+  h1 { font-size: 18px; margin: 0 0 2px; } h2 { font-size: 13px; margin: 14px 0 6px; color: #66655f; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+  label { display: flex; flex-direction: column; font-size: 12px; color: #66655f; gap: 2px; }
+  input[type=number] { font: inherit; padding: 4px 6px; border: 1px solid #c9c7bf; border-radius: 4px; width: 100%; background: #fff; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #b9b7af; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1d1e20; color: #fff; border-color: #1d1e20; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: #fff; border: 1px solid #dddcd6; border-radius: 6px; padding: 8px 10px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-variant-numeric: tabular-nums; }
+  dt { color: #66655f; } dd { margin: 0; }
+  .key { font-size: 12px; color: #66655f; margin-top: 6px; } .key span { margin-right: 10px; white-space: nowrap; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }
+  pre { background: #fff; border: 1px solid #dddcd6; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; border-radius: 6px; max-height: 180px; overflow: auto; margin: 6px 0 0; }
+  .good { color: #1e7d45; } .bad { color: #c0392b; } .warn { color: #b26a00; } .muted { color: #8b8a84; }
+  @media (max-width: 1100px) { main { flex-direction: column; } aside { width: 100%; } }
+  [hidden] { display: none !important; }
+  button.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
+  button.stop { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 16px 36px; font-size: 20px; font-weight: 700;
+                 background: #c0392b; color: #fff; border: 3px solid #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+  .confirm { margin-top: 8px; padding: 8px 10px; border: 2px solid #c0392b; border-radius: 6px; background: #fdf3f2; }
+  code { font-size: 11px; word-break: break-all; }
+  .check { font-size: 12px; color: #66655f; display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-direction: row; }
+</style></head>
+<body><main>
+<div class="stage">
+  <canvas id="view" width="1600" height="1200" aria-label="3-D view: the arm's reach ring, the table and the placed path"></canvas>
+  <div class="hint" id="hint"></div>
+</div>
+<aside>
+  <h1>Layout editor</h1>
+  <div class="muted" style="font-size:12px">Homeostat strand on the Kinova Gen3. Nothing here moves the arm.</div>
+
+  <h2>Path</h2>
+  <div class="row" style="margin:0 0 8px;align-items:flex-end">
+    <label style="flex:1">Past plans (planned and checked: load one to run it again)<select id="pastPlans" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
+    <button type="button" id="pastLoad">Load</button>
+  </div>
+  <div id="pastNote" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>
+  <label>Path from<select id="source" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
+  <div class="row" style="margin:6px 0 8px">
+    <a href="/sim" target="_blank" rel="noopener"><button type="button">Open the simulator</button></a>
+    <button type="button" id="loadFile">Load a file…</button><input type="file" id="fileIn" accept=".json,application/json" hidden>
+    <span id="sourceInfo" class="muted" style="font-size:12px;align-self:center"></span>
+  </div>
+  <div class="row" style="margin:0 0 8px;align-items:flex-end">
+    <label style="width:150px">Attractor<select id="attKind" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff"></select></label>
+    <label style="width:110px">Run it for<input type="number" id="attDur" min="0.1" step="1"></label>
+    <label style="width:70px">Seed<input type="number" id="attSeed" value="0" min="0" step="1"></label>
+    <button type="button" id="attMake">Make it</button>
+  </div>
+  <div id="attAbout" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>
+  <div class="grid">
+    <label>Start at t (s) · 0 = whole run<input type="number" id="from_t" step="0.5" min="0"></label>
+    <label>Run length (s)<input type="number" id="seconds" step="1" min="1"></label>
+    <label>Scale (mm per 90°)<input type="number" id="scale" step="10" min="10"></label>
+    <label>Preset<input type="number" id="preset" step="1" min="0"></label>
+  </div>
+
+  <h2>Placement</h2>
+  <div class="grid">
+    <label>X (m, out from the base)<input type="number" id="x" step="0.01"></label>
+    <label>Y (m, sideways)<input type="number" id="y" step="0.01"></label>
+    <label>Turn (°, about vertical)<input type="number" id="yaw" step="5"></label>
+    <label>Table height (m)<input type="number" id="table" step="0.01"></label>
+    <label>Tilt about X (°)<input type="number" id="roll" step="5"></label>
+    <label>Tilt about Y (°)<input type="number" id="pitch" step="5"></label>
+    <label><span id="liftName">Raise on a post (mm)</span><input type="number" id="lift" step="10" min="0"></label>
+  </div>
+  <label class="check"><input type="checkbox" id="light"> <b>Light drawing</b> <span class="muted">the arm carries a light for a long exposure: nothing is left behind, so the path may cross itself and only reach and the table limit it</span></label>
+  <div class="row">
+    <button id="flat">Lay flat</button>
+    <button id="fit">Fit inside reach</button>
+    <button id="view-obj">Frame object</button>
+    <button id="view-all">Whole arm</button>
+  </div>
+  <h2>Table height (homing)</h2>
+  <div class="card" style="font-size:13px">
+    Hand-guide the claw tip down onto the table (hold the wrist button), then press Capture. Do three spots
+    or more, spread apart. Nothing is commanded to move: it only reads where you put the arm.
+    <div class="row"><button id="tCap">Capture</button><button id="tUse" disabled>Use it as the table height</button><button id="tClear">Clear</button></div>
+    <div id="tOut" class="muted" style="margin-top:6px"></div>
+  </div>
+  <label class="check"><input type="checkbox" id="show_arm" checked> Show the arm, live (where it really is)</label>
+  <label class="check"><input type="checkbox" id="use_sweep"> Keep inside the painting rig's working sweep <span id="sweepInfo" class="muted"></span></label>
+
+  <h2>Printability</h2>
+  <div class="card"><dl id="stats"></dl>
+    <div class="key">
+      <span><i class="sw" style="background:#2e7d4f"></i>printable</span>
+      <span><i class="sw" style="background:#e39b25"></i>blocked by strand</span>
+      <span><i class="sw" style="background:#e0533d"></i>out of reach</span>
+      <span><i class="sw" style="background:#8e5cc9"></i>outside sweep</span>
+      <span><i class="sw" style="background:#cfcdc4"></i>after the print stops</span>
+    </div>
+  </div>
+  <label class="check"><input type="checkbox" id="auto" checked> Check automatically after each change</label>
+  <div class="row">
+    <button id="quick">Check placement</button>
+    <button id="plan" class="primary">Plan</button>
+    <button id="planCheck">Plan and check on the arm</button>
+  </div>
+  <div id="planBar" hidden style="margin-top:8px">
+    <div style="height:12px;background:#e4e2dc;border-radius:6px;overflow:hidden"><div id="planBarFill" style="height:100%;width:0;background:#3b6fd6;transition:width .6s"></div></div>
+    <div id="planBarText" class="muted" style="font-size:12px;margin-top:3px"></div>
+  </div>
+  <div id="jobOut" style="margin-top:6px"></div>
+  <div id="runBox" class="card" hidden style="margin-top:8px">
+    <b>Air-run on the arm</b> <span class="muted">moves the arm along the checked plan, raised; nothing is extruded</span>
+    <div class="row" style="align-items:flex-end">
+      <label id="raiseBox" style="width:150px">Raise above the plan (mm)<input type="number" id="raise_mm" value="20" min="0" max="100" step="5"></label>
+      <label style="width:130px">Speed<select id="fast" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
+        <option value="1">print speed</option><option value="2">2× faster</option><option value="3">3× faster</option><option value="4">4× faster</option><option value="6" class="lightOnly">6× faster</option><option value="8" class="lightOnly">8× faster</option></select></label>
+      <label id="lightOpts1" hidden style="width:150px">Light switched on<select id="light_pin" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
+        <option value="0">not switched (always on)</option><option value="1">wrist pin 1</option><option value="2">wrist pin 2</option><option value="3">wrist pin 3</option><option value="4">wrist pin 4</option></select></label>
+      <label id="lightOpts2" hidden style="width:120px">Camera countdown (s)<input type="number" id="hold_s" value="5" min="0" max="60" step="1"></label>
+      <button id="airrun">Air-run…</button>
+      <button id="park">Park at Home…</button>
+    </div>
+    <div class="row" style="align-items:flex-end;margin-top:6px">
+      <span class="muted" style="font-size:12px;align-self:center">Gripper</span>
+      <button id="gripOpen">Open…</button>
+      <label style="width:150px">Close speed<select id="gripSpeed" style="font:inherit;padding:4px 6px;border:1px solid #c9c7bf;border-radius:4px;background:#fff">
+        <option value="0.1">slow</option><option value="0.05" selected>slower</option><option value="0.02">very slow</option></select></label>
+      <button id="gripClose">Slow close…</button>
+    </div>
+    <div id="confirmBox" class="confirm" hidden>
+      <div id="confirmText"></div>
+      <div class="row"><button id="confirmGo" class="danger">Move the arm</button><button id="confirmCancel">Cancel</button></div>
+    </div>
+    <div id="goBox" hidden style="margin-top:8px;padding:12px;border:2px solid #8a5a00;border-radius:6px;text-align:center">
+      <div id="goText" style="margin-bottom:8px"></div>
+      <button id="goBtn" style="font-size:22px;padding:10px 40px;background:#2e7d4f;color:#fff;border:0;border-radius:6px">Continue</button>
+    </div>
+    <div id="shutterCue" hidden style="margin-top:8px;padding:14px;border-radius:6px;background:#1d1e20;color:#fff;font-size:26px;font-weight:700;text-align:center"></div>
+    <div id="fastNote" class="muted" style="font-size:12px;margin-top:6px"></div>
+    <div id="runNote" class="muted" style="font-size:12px;margin-top:6px"></div>
+    <button id="stopArm" class="stop" hidden>Stop the arm <span style="font-weight:400;font-size:14px">(Esc or Space)</span></button>
+  </div>
+  <pre id="log" hidden></pre>
+  <h2>Same thing from the command line</h2>
+  <code id="cmd"></code>
+</aside>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const FIELDS = ["preset", "seconds", "scale", "from_t", "x", "y", "yaw", "roll", "pitch", "table", "lift"];
+const DEFAULTS = { preset: 0, seconds: 30, scale: 200, from_t: 10, x: 0.55, y: 0, yaw: 90, roll: 0, pitch: 0, table: 0.16, lift: 0 };
+const P = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem("homeostat-layout") || "{}"));
+let base = null, baseScale = null, baseKey = "", reachMap = null, sweep = null;
+let quick = null, quickKey = "", checking = false;
+const COL = { ok: "#2e7d4f", blocked: "#e39b25", reach: "#e0533d", sweep: "#8e5cc9", after: "#cfcdc4", plain: "#1d1e20" };
+
+// ------------------------------------------------------------------ geometry (mirrors plan.place_from_base)
+function rotXY(roll, pitch) {
+  const r = roll * Math.PI / 180, p = pitch * Math.PI / 180, cr = Math.cos(r), sr = Math.sin(r), cp = Math.cos(p), sp = Math.sin(p);
+  // Ry(pitch) @ Rx(roll)
+  return [[cp, sp * sr, sp * cr], [0, cr, -sr], [-sp, cp * sr, cp * cr]];
+}
+function placed() {
+  if (!base) return [];
+  const f = P.scale / baseScale;
+  let W = base.map(v => [v[0] * f, v[1] * f, v[2] * f]);
+  if (P.roll || P.pitch) {
+    const R = rotXY(P.roll, P.pitch);
+    W = W.map(v => [0, 1, 2].map(i => R[i][0] * v[0] + R[i][1] * v[1] + R[i][2] * v[2]));
+    const mx = W.reduce((a, v) => a + v[0], 0) / W.length, my = W.reduce((a, v) => a + v[1], 0) / W.length;
+    const mz = Math.min(...W.map(v => v[2]));
+    W = W.map(v => [v[0] - mx, v[1] - my, v[2] - mz]);
+  }
+  const c = Math.cos(P.yaw * Math.PI / 180), s = Math.sin(P.yaw * Math.PI / 180);
+  return W.map(v => [v[0] * c - v[1] * s + P.x, v[0] * s + v[1] * c + P.y, v[2] + P.table + P.lift / 1000]);
+}
+function reachAt(p) {
+  if (!reachMap) return 1;
+  const r = Math.hypot(p[0], p[1]), a = Math.round((p[2] - reachMap.z0) / reachMap.cell), b = Math.round(r / reachMap.cell);
+  if (a < 0 || b < 0 || a >= reachMap.nz || b >= reachMap.nr) return 0;
+  return reachMap.frac[a][b];
+}
+function inSweep(p) {
+  if (!$("use_sweep").checked || !sweep) return true;
+  const a = Math.atan2(p[1], p[0]) * 180 / Math.PI; return a >= sweep[0] && a <= sweep[1];
+}
+const key = () => JSON.stringify([FIELDS.map(k => P[k]), P.source || "", $("use_sweep").checked, !!P.light]);
+
+// ------------------------------------------------------------------ view
+const cv = $("view"), g = cv.getContext("2d");
+const cam = { yaw: -0.75, pitch: 0.45, zoom: 1.25, target: [0.42, 0, 0.25] };
+function proj(p) {
+  const x = p[0] - cam.target[0], y = p[1] - cam.target[1], z = p[2] - cam.target[2];
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  const x1 = cy * x - sy * y, y1 = sy * x + cy * y, y2 = cp * y1 - sp * z, z2 = sp * y1 + cp * z;
+  const k = 1100 * cam.zoom / (3.0 - y2);
+  return [cv.width / 2 + x1 * k, cv.height * 0.6 - z2 * k, y2];
+}
+function line(a, b, col, w, dash) { const p = proj(a), q = proj(b); g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash || []); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); g.setLineDash([]); }
+function poly(pts, col, w, fill) { g.beginPath(); pts.forEach((p, i) => { const q = proj(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); if (fill) { g.fillStyle = fill; g.fill("evenodd"); } if (col) { g.strokeStyle = col; g.lineWidth = w; g.stroke(); } }
+const ring = (r, z, a0 = -Math.PI, a1 = Math.PI, n = 96) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [r * Math.cos(a), r * Math.sin(a), z]; });
+
+function bands() {
+  // per height row of the reach map: reachable radius intervals
+  const out = [];
+  if (!reachMap) return out;
+  for (let a = 0; a < reachMap.nz; a++) {
+    const row = reachMap.frac[a], iv = []; let start = -1;
+    for (let b = 0; b <= row.length; b++) {
+      const on = b < row.length && row[b] > 0;
+      if (on && start < 0) start = b; if (!on && start >= 0) { iv.push([start * reachMap.cell, (b - 1) * reachMap.cell]); start = -1; }
+    }
+    out.push({ z: reachMap.z0 + a * reachMap.cell, iv });
+  }
+  return out;
+}
+let BANDS = [], armRef = null, live = null, trail = [], wasLive = false;
+
+function draw() {
+  g.clearRect(0, 0, cv.width, cv.height);
+  const tz = P.table;
+  // table grid
+  for (let v = -1; v <= 1.0001; v += 0.1) { line([v, -1, tz], [v, 1, tz], "#efeee9", 1.5); line([-1, v, tz], [1, v, tz], "#efeee9", 1.5); }
+  // reach footprint on the table and the ring's outline
+  if (BANDS.length) {
+    const t0 = BANDS[0];
+    if (t0.iv.length) {
+      g.beginPath(); for (const [r0, r1] of t0.iv) { for (const r of [r1, r0]) { if (r <= 0) continue; ring(r, tz).forEach((p, i) => { const q = proj(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); } }
+      g.fillStyle = "rgba(46,125,79,0.07)"; g.fill("evenodd");
+    }
+    for (let a = 0; a < BANDS.length; a += 10) for (const [r0, r1] of BANDS[a].iv) { poly(ring(r1, BANDS[a].z), "rgba(46,125,79,0.35)", 1.5); if (r0 > 0.13) poly(ring(r0, BANDS[a].z), "rgba(46,125,79,0.15)", 1); }
+    for (let k = 0; k < 12; k++) {                            // meridians: outer and inner edge up the height
+      const ang = k * Math.PI / 6, c = Math.cos(ang), s = Math.sin(ang);
+      poly(BANDS.filter(b => b.iv.length).map(b => { const r = b.iv[b.iv.length - 1][1]; return [r * c, r * s, b.z]; }), "rgba(46,125,79,0.35)", 1.2);
+    }
+  }
+  // the painting rig's working sweep
+  if ($("use_sweep").checked && sweep) {
+    for (const a of sweep) line([0, 0, tz], [1.0 * Math.cos(a * Math.PI / 180), 1.0 * Math.sin(a * Math.PI / 180), tz], "#8e5cc9", 2, [10, 8]);
+    poly(ring(1.0, tz, sweep[0] * Math.PI / 180, sweep[1] * Math.PI / 180, 48), "#8e5cc9", 1.5);
+  }
+  // the arm standing at Home, to scale: a reference, it doesn't move here
+  const pts = live && live.points ? live.points : armRef;
+  if (pts && $("show_arm").checked) {
+    const R = [0.06, 0.05, 0.05, 0.045, 0.045, 0.04, 0.04], solid = !!(live && live.points);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = proj(pts[i - 1]), b = proj(pts[i]), k = 1100 * cam.zoom / (3 - (a[2] + b[2]) / 2);
+      g.strokeStyle = solid ? (live.active ? "rgba(59,111,214,0.8)" : "rgba(59,111,214,0.6)") : "rgba(59,111,214,0.35)";
+      g.lineCap = "round"; g.lineWidth = Math.max(2, 2 * R[i - 1] * k);
+      g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); g.lineCap = "butt";
+    }
+    line(pts[pts.length - 2], pts[pts.length - 1], "#e39b25", 5);      // flange to the tool tip
+  }
+  if (trail.length > 1) { g.globalAlpha = 0.7; poly(trail, "#3b6fd6", 2.5); g.globalAlpha = 1; }
+  // the arm's base column
+  for (const z of [0, 0.2848]) poly(ring(0.065, z, -Math.PI, Math.PI, 32), "#3b6fd6", 2);
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; line([0.065 * Math.cos(a), 0.065 * Math.sin(a), 0], [0.065 * Math.cos(a), 0.065 * Math.sin(a), 0.2848], "#3b6fd6", 2); }
+  line([0, 0, 0], [0.12, 0, 0], "#3b6fd6", 3); line([0, 0, 0], [0, 0.08, 0], "#9db3e6", 2);
+  // the path
+  const W = placed(); if (!W.length) return;
+  const fresh = quick && quickKey === key();
+  const st = i => {
+    if (fresh) { if (i > quick.stop) return COL.after; return [COL.ok, COL.blocked, COL.reach, COL.sweep][quick.status[i]]; }
+    if (!inSweep(W[i])) return COL.sweep; if (reachAt(W[i]) <= 0) return COL.reach; return COL.plain;
+  };
+  // shadow on the table
+  g.globalAlpha = 0.18; for (let i = 1; i < W.length; i++) line([W[i - 1][0], W[i - 1][1], tz], [W[i][0], W[i][1], tz], "#1d1e20", 2); g.globalAlpha = 1;
+  if (!P.light && W[0][2] > tz + 0.001) line([W[0][0], W[0][1], tz], W[0], "#8f8e89", 9);   // post (prints only)
+  for (let i = 1; i < W.length; i++) line(W[i - 1], W[i], st(i), 3.2);
+  const a0 = proj(W[0]); g.fillStyle = "#1d1e20"; g.beginPath(); g.arc(a0[0], a0[1], 7, 0, 7); g.fill();
+  if (fresh && quick.stop < W.length) { const q = proj(W[quick.stop]); g.strokeStyle = "#c0392b"; g.lineWidth = 3; g.beginPath(); g.arc(q[0], q[1], 12, 0, 7); g.stroke(); }
+  // centre mark on the table
+  const cx = P.x, cy = P.y; line([cx - 0.02, cy, tz], [cx + 0.02, cy, tz], "#1d1e20", 1.5); line([cx, cy - 0.02, tz], [cx, cy + 0.02, tz], "#1d1e20", 1.5);
+  drawHandles(W);
+  drawAxes();
+}
+function drawAxes() {     // which way world x, y and z point from here, coloured like the rings that turn about them
+  const O = [110, 120], t = cam.target, o = proj(t);
+  const axes = [["X", [1, 0, 0], "#d1495b"], ["Y", [0, 1, 0], "#139fa0"], ["Z", [0, 0, 1], "#e39b25"]].map(([n, e, col]) => {
+    const q = proj([t[0] + e[0] * 0.05, t[1] + e[1] * 0.05, t[2] + e[2] * 0.05]); return [n, q[0] - o[0], q[1] - o[1], col];
+  });
+  const s = 75 / Math.max(...axes.map(a => Math.hypot(a[1], a[2])), 1e-9);
+  g.lineWidth = 4; g.font = "bold 26px system-ui";
+  for (const [n, dx, dy, col] of axes) {
+    g.strokeStyle = col; g.beginPath(); g.moveTo(O[0], O[1]); g.lineTo(O[0] + dx * s, O[1] + dy * s); g.stroke();
+    g.fillStyle = col; g.fillText(n, O[0] + dx * s * 1.3 - 8, O[1] + dy * s * 1.3 + 9);
+  }
+  g.fillStyle = "#1d1e20"; g.font = "24px system-ui";
+  g.fillText(`Turn ${(+P.yaw).toFixed(0)}°   Tilt X ${(+P.roll).toFixed(0)}°   Tilt Y ${(+P.pitch).toFixed(0)}°`, 28, 240);
+  const armLabel = live && live.points ? (live.active ? "Arm: live, " + (live.what || "moving") : "Arm: where it is now") : "Arm: drawn at Home (no reading)";
+  g.fillStyle = live && live.active ? "#c0392b" : "#66655f"; g.fillText(armLabel, 28, 280);
+}
+
+// ------------------------------------------------------------------ panel
+function stats() {
+  const W = placed(); if (!W.length) return;
+  const lo = [0, 1, 2].map(k => Math.min(...W.map(v => v[k]))), hi = [0, 1, 2].map(k => Math.max(...W.map(v => v[k])));
+  let len = 0; for (let i = 1; i < W.length; i++) len += Math.hypot(W[i][0] - W[i - 1][0], W[i][1] - W[i - 1][1], W[i][2] - W[i - 1][2]);
+  const inside = W.filter(p => reachAt(p) > 0 && inSweep(p)).length;
+  const rows = [["Size", `${hi.map((h, k) => ((h - lo[k]) * 1000).toFixed(0)).join(" × ")} mm (x × y × z)`],
+    ["Strand", `${(len * 1000).toFixed(0)} mm, ${W.length} points`],
+    ["Inside reach", `<span class="${inside === W.length ? "good" : "bad"}">${inside} of ${W.length} points</span>`],
+    P.light ? ["Lowest point", `${((Math.min(...W.map(w => w[2])) - P.table) * 1000).toFixed(0)} mm above the table (light: nothing to stand on)`]
+            : ["Anchor", W[0][2] > P.table + 0.001 ? `on a ${((W[0][2] - P.table) * 1000).toFixed(0)} mm post` : "on the table"]];
+  const fresh = quick && quickKey === key();
+  if (checking) rows.push(["Printable", `<span class="muted">checking…</span>`]);
+  else if (fresh) {
+    const pct = quick.total_mm ? 100 * quick.printable_mm / quick.total_mm : 0;
+    const why = ["", "nothing can reach it past the strand already printed", "the arm can't reach it", "it's outside the working sweep"][quick.stop < W.length ? quick.status[quick.stop] : 0];
+    rows.push(["Printable", `<span class="${pct >= 99.9 ? "good" : "bad"}">${pct.toFixed(0)}% (${quick.printable_mm.toFixed(0)} of ${quick.total_mm.toFixed(0)} mm)</span>`]);
+    if (quick.stop < W.length) rows.push(["Stops at", `point ${quick.stop}: ${why}`]);
+    rows.push(["", `<span class="muted">Quick check: optimistic. Plan to be sure.</span>`]);
+  } else rows.push(["Printable", `<span class="muted">not checked for this placement</span>`]);
+  $("stats").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  const f = v => +(+v).toFixed(4);
+  $("cmd").textContent = `python plan.py ${P.source ? "--path-file plans/imports/" + P.source + ".json " : ""}--from-t ${f(P.from_t)} --seconds ${f(P.seconds)} --scale ${f(P.scale)} --x ${f(P.x)} --y ${f(P.y)} --yaw ${f(P.yaw)} --roll ${f(P.roll)} --pitch ${f(P.pitch)} --table ${f(P.table)} --lift ${f(P.lift / 1000)}${P.light ? " --light" : ""}`;
+}
+function render() { draw(); stats(); }
+function syncFields() {
+  $("liftName").textContent = P.light ? "Raise off the table (mm)" : "Raise on a post (mm)";
+  for (const k of FIELDS) if (document.activeElement !== $(k)) $(k).value = +(+P[k]).toFixed(k === "x" || k === "y" || k === "table" ? 3 : 2);
+}
+
+// ------------------------------------------------------------------ server
+const qs = o => new URLSearchParams(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)]))).toString();
+const body = () => Object.assign({}, P, { lift: P.lift / 1000, use_sweep: $("use_sweep").checked, source: P.source || "", light: !!P.light });
+async function loadShape() {
+  const k = [P.preset, P.seconds, P.scale, P.from_t, P.source || ""].join();
+  if (k === baseKey) return;
+  baseKey = k;
+  const r = await fetch("/api/shape?" + qs({ preset: P.preset, seconds: P.seconds, scale: P.scale, from_t: P.from_t, source: P.source || "" }));
+  const d = await r.json(); if (!r.ok) { $("hint").textContent = d.error; return; }
+  if (k !== baseKey) return;
+  base = d.base; baseScale = d.scale; render();
+}
+let reachTable = null;
+async function loadReach() {
+  const t = +(+P.table).toFixed(3), k = t + (P.light ? "L" : ""); if (k === reachTable) return; reachTable = k;
+  $("hint").textContent = P.light ? "Working out the reach for a light pointing any way…" : "Working out the reach at this table height…";
+  const d = await (await fetch("/api/reach?table=" + t + (P.light ? "&light=1" : ""))).json();
+  if (k !== reachTable) return;
+  reachMap = d; BANDS = bands(); $("hint").textContent = HINT; render();
+}
+let qTimer = null, qSeq = 0;
+function scheduleQuick(now) { clearTimeout(qTimer); if (!now && !$("auto").checked) return; qTimer = setTimeout(runQuick, now ? 0 : 500); }
+async function runQuick() {
+  await loadShape();
+  const k = key(), seq = ++qSeq; checking = true; stats();
+  try {
+    const r = await fetch("/api/quick", { method: "POST", body: JSON.stringify(body()) });
+    const d = await r.json(); if (seq !== qSeq || r.status === 409) return;
+    if (!r.ok) throw new Error(d.error);
+    quick = d; quickKey = k;
+  } catch (e) { $("hint").textContent = "Check failed: " + e.message; }
+  finally { if (seq === qSeq) { checking = false; render(); } }
+}
+function changed(opts = {}) {
+  localStorage.setItem("homeostat-layout", JSON.stringify(P));
+  if (lastJob) renderJob(lastJob);
+  syncFields(); render(); sourceUi();
+  if (opts.shape) setTimeout(loadShape, 250);
+  if (opts.reach) loadReach();
+  if (!opts.live) scheduleQuick();
+}
+
+// ------------------------------------------------------------------ handles on the object (like a slicer's)
+const HINT = "Drag the path to move it, Shift-drag it to raise or lower it. Orange ring turns it, red and teal rings tilt it, corner squares scale it. Click empty space (or Esc) to put the handles away, click the path to bring them back. Drag empty space to turn the view; right-drag or Shift-drag pans; wheel zooms.";
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit = a => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
+function rotAbout(p, c, k, deg) {          // Rodrigues: p turned about the unit axis k through c
+  const t = deg * Math.PI / 180, v = sub3(p, c), ct = Math.cos(t), st = Math.sin(t), kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2], x = cross(k, v);
+  return [0, 1, 2].map(i => c[i] + v[i] * ct + x[i] * st + k[i] * kv * (1 - ct));
+}
+function handles(W) {
+  if (!W || !W.length) return null;
+  const lo = [0, 1, 2].map(k => Math.min(...W.map(v => v[k]))), hi = [0, 1, 2].map(k => Math.max(...W.map(v => v[k])));
+  const c = lo.map((v, k) => (v + hi[k]) / 2), R = 0.55 * Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) + 0.012;
+  const cy = Math.cos(P.yaw * Math.PI / 180), sy = Math.sin(P.yaw * Math.PI / 180);
+  // roll and pitch are applied before the turn, so their axes turn with it
+  const rings = [["yaw", [0, 0, 1], "#e39b25"], ["roll", [cy, sy, 0], "#d1495b"], ["pitch", [-sy, cy, 0], "#139fa0"]].map(([id, ax, col]) => {
+    const h = Math.abs(ax[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0], u = unit(cross(ax, h)), v = cross(ax, u);
+    const pts = Array.from({ length: 73 }, (_, i) => { const t = 2 * Math.PI * i / 72; return [0, 1, 2].map(k => c[k] + R * (Math.cos(t) * u[k] + Math.sin(t) * v[k])); });
+    return { id, ax, col, pts };
+  });
+  const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(([x, y]) => [x, y, hi[2]]);
+  return { lo, hi, c, R, rings, corners };
+}
+const hkey = h => h ? h.kind + (h.id || "") + (h.i === undefined ? "" : h.i) : "";
+let hover = null, selected = true;
+function drawHandles(W) {
+  const H = handles(W); if (!H || !selected) return;
+  const { lo, hi } = H, box = [];
+  for (const z of [lo[2], hi[2]]) box.push([[lo[0], lo[1], z], [hi[0], lo[1], z]], [[hi[0], lo[1], z], [hi[0], hi[1], z]], [[hi[0], hi[1], z], [lo[0], hi[1], z]], [[lo[0], hi[1], z], [lo[0], lo[1], z]]);
+  for (const [x, y] of [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]]) box.push([[x, y, lo[2]], [x, y, hi[2]]]);
+  for (const [a, b] of box) line(a, b, "#b9b7af", 1.2, [6, 6]);
+  const active = drag && drag.mode !== "orbit" ? drag.key : hkey(hover);
+  for (const r of H.rings) { const on = active === "ring" + r.id; g.globalAlpha = on ? 1 : 0.7; poly(r.pts, r.col, on ? 7 : 3.5); g.globalAlpha = 1; }
+  H.corners.forEach((p, i) => {
+    const q = proj(p), on = active === "scale" + i, s = on ? 13 : 9;
+    g.fillStyle = on ? "#1d1e20" : "#fff"; g.strokeStyle = "#1d1e20"; g.lineWidth = 2;
+    g.fillRect(q[0] - s, q[1] - s, 2 * s, 2 * s); g.strokeRect(q[0] - s, q[1] - s, 2 * s, 2 * s);
+  });
+  if (drag && drag.label && drag.moved) {
+    const t = drag.label(); g.font = "28px system-ui"; const w = g.measureText(t).width + 20;
+    g.fillStyle = "rgba(29,30,32,0.85)"; g.fillRect(drag.x + 24, drag.y - 44, w, 40); g.fillStyle = "#fff"; g.fillText(t, drag.x + 34, drag.y - 14);
+  }
+}
+function segDist(m, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((m[0] - a[0]) * dx + (m[1] - a[1]) * dy) / l));
+  return Math.hypot(m[0] - a[0] - t * dx, m[1] - a[1] - t * dy);
+}
+function canvasPt(e) { const r = cv.getBoundingClientRect(), sc = cv.width / r.width; return [(e.clientX - r.left) * sc, (e.clientY - r.top) * sc, sc]; }
+function hit(m) {
+  const W = placed(), H = handles(W); if (!H) return null;
+  const tol = 12 * m[2];
+  if (selected) for (let i = 0; i < 4; i++) { const q = proj(H.corners[i]); if (Math.abs(m[0] - q[0]) < tol && Math.abs(m[1] - q[1]) < tol) return { kind: "scale", i }; }
+  let best = null;
+  if (selected) for (const r of H.rings) {
+    const q = r.pts.map(proj);
+    for (let i = 1; i < q.length; i++) { const d = segDist(m, q[i - 1], q[i]); if (d < tol * 0.8 && (!best || d < best.d)) best = { kind: "ring", id: r.id, d }; }
+  }
+  if (best) return best;
+  const q = W.map(proj);
+  for (let i = 1; i < q.length; i++) if (segDist(m, q[i - 1], q[i]) < tol) return { kind: "move" };
+  return null;
+}
+function screenPerMetre() {   // screen motion for 1 cm along world x and y, at the object's centre on the table
+  const c = [P.x, P.y, P.table], o = proj(c), ax = proj([c[0] + 0.01, c[1], c[2]]), ay = proj([c[0], c[1] + 0.01, c[2]]);
+  return [[(ax[0] - o[0]) / 0.01, (ay[0] - o[0]) / 0.01], [(ax[1] - o[1]) / 0.01, (ay[1] - o[1]) / 0.01]];
+}
+const wrap180 = a => ((a + 540) % 360) - 180;
+const cursorFor = h => h ? (h.kind === "move" ? "move" : h.kind === "scale" ? "nwse-resize" : "grab") : "default";
+let drag = null;
+cv.addEventListener("contextmenu", e => e.preventDefault());
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  const m = canvasPt(e), h = e.button === 0 ? hit(m) : null;
+  const pan = e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey && !h);
+  drag = { x: m[0], y: m[1], mode: h ? (h.kind === "move" && e.shiftKey ? "lift" : h.kind) : pan ? "pan" : "orbit", key: hkey(h), moved: false };
+  if (h) selected = true;
+  if (h && h.kind === "ring") {
+    drag.ring = h.id; const name = { yaw: "Turn", roll: "Tilt X", pitch: "Tilt Y" }[h.id];
+    drag.label = () => name + " " + P[h.id].toFixed(0) + "°";
+  } else if (h && h.kind === "scale") {
+    const c = proj(handles(placed()).c);
+    Object.assign(drag, { c, r0: Math.hypot(m[0] - c[0], m[1] - c[1]) || 1, s0: P.scale, label: () => "Scale " + Math.round(P.scale) + " mm per 90°" });
+  } else if (h && drag.mode === "lift") {
+    drag.label = () => (P.light ? "Off the table " : "On a post ") + Math.round(P.lift) + " mm";
+  } else if (h) drag.label = () => "x " + P.x.toFixed(3) + "  y " + P.y.toFixed(3) + " m";
+  cv.style.cursor = h && h.kind !== "ring" ? cursorFor(h) : "grabbing";
+});
+cv.addEventListener("pointermove", e => {
+  const m = canvasPt(e);
+  if (!drag) {                      // hover: show what a drag would do
+    const h = hit(m), changedHover = hkey(h) !== hkey(hover);
+    hover = h; cv.style.cursor = cursorFor(h);
+    if (changedHover) draw();
+    return;
+  }
+  const dx = m[0] - drag.x, dy = m[1] - drag.y; drag.x = m[0]; drag.y = m[1];
+  if (!dx && !dy) return;
+  if (drag.mode === "orbit" || drag.mode === "pan") drag.viewed = true;
+  if (drag.mode === "orbit") { cam.yaw += dx * 0.005; cam.pitch = Math.max(-0.1, Math.min(1.5, cam.pitch + dy * 0.005)); draw(); return; }
+  if (drag.mode === "pan") {        // slide the view: the scene follows the pointer
+    const k = 1100 * cam.zoom / 3, cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
+    const right = [cy, -sy, 0], up = [sp * sy, sp * cy, cp];
+    cam.target = cam.target.map((v, i) => v - right[i] * dx / k + up[i] * dy / k); draw(); return;
+  }
+  drag.moved = true;
+  if (drag.mode === "move") {
+    const [[a, b], [c, d]] = screenPerMetre(), det = a * d - b * c; if (Math.abs(det) < 1e-6) return;
+    P.x += (d * dx - b * dy) / det; P.y += (-c * dx + a * dy) / det;
+  } else if (drag.mode === "lift") {  // up the screen = up in the room, however the view is turned
+    const c = handles(placed()).c, p0 = proj(c), p1 = proj([c[0], c[1], c[2] + 0.1]), t = [p1[0] - p0[0], p1[1] - p0[1]], tt = t[0] * t[0] + t[1] * t[1];
+    if (tt < 1e-6) return;
+    P.lift = Math.max(0, P.lift + 100 * (dx * t[0] + dy * t[1]) / tt);
+  } else if (drag.mode === "ring") {
+    // which way the ring runs on screen for +1 degree, at the ring point nearest the pointer
+    const H = handles(placed()), r = H.rings.find(q => q.id === drag.ring);
+    let j = 0, bd = 1e9; r.pts.forEach((p, i) => { const q = proj(p), dd = Math.hypot(q[0] - m[0], q[1] - m[1]); if (dd < bd) { bd = dd; j = i; } });
+    const p0 = proj(r.pts[j]), p1 = proj(rotAbout(r.pts[j], H.c, r.ax, 1)), t = [p1[0] - p0[0], p1[1] - p0[1]], tt = t[0] * t[0] + t[1] * t[1];
+    if (tt < 1e-6) return;
+    P[drag.ring] = wrap180(P[drag.ring] + Math.max(-10, Math.min(10, (dx * t[0] + dy * t[1]) / tt)));
+  } else if (drag.mode === "scale") {
+    P.scale = Math.max(10, Math.min(4000, drag.s0 * Math.hypot(m[0] - drag.c[0], m[1] - drag.c[1]) / drag.r0));
+  }
+  changed({ live: true });
+});
+cv.addEventListener("pointerup", () => {
+  if (drag && drag.moved) {
+    P.x = +P.x.toFixed(3); P.y = +P.y.toFixed(3); P.yaw = +P.yaw.toFixed(1); P.roll = +P.roll.toFixed(1); P.pitch = +P.pitch.toFixed(1); P.scale = Math.round(P.scale); P.lift = Math.round(P.lift);
+    changed({ shape: drag.mode === "scale" });
+  }
+  if (drag && drag.mode === "orbit" && !drag.moved && !drag.viewed) selected = false;     // a click on empty space
+  drag = null; cv.style.cursor = "default"; draw();
+});
+cv.addEventListener("wheel", e => { e.preventDefault(); cam.zoom = Math.max(0.3, Math.min(8, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+
+let IMPORTS = [];
+async function loadSources(select) {
+  IMPORTS = await (await fetch("/api/imports")).json();
+  if (select) P.source = select;
+  if (P.source && !IMPORTS.some(i => i.name === P.source)) P.source = "";
+  $("source").innerHTML = `<option value="">Built-in model, preset ${P.preset}</option>` +
+    IMPORTS.map(i => i.attractor
+      ? `<option value="${i.name}">Attractor: ${i.preset}, run for ${(+i.t_end).toFixed(1)}${i.seed ? ", seed " + i.seed : ""}, made ${i.received}</option>`
+      : `<option value="${i.name}">Simulator: ${i.preset || "seed " + i.seed}, t 0–${(+i.t_end).toFixed(0)} s, sent ${i.received}</option>`).join("");
+  $("source").value = P.source || "";
+  sourceUi();
+}
+function sourceUi() {
+  const imp = IMPORTS.find(i => i.name === P.source);
+  $("preset").disabled = $("seconds").disabled = !!imp;
+  $("sourceInfo").textContent = !imp ? "" : imp.attractor
+    ? `${imp.points} points; about ${(2 * P.scale / 1000).toFixed(2)} m across at this scale`
+    : `${imp.points} points, made at ${imp.mm_per_90} mm per 90°, 4-D view xw ${(+imp.view.xw || 0).toFixed(2)} yw ${(+imp.view.yw || 0).toFixed(2)}`;
+}
+$("source").onchange = () => {
+  P.source = $("source").value;
+  const imp = IMPORTS.find(i => i.name === P.source);
+  if (imp && P.from_t >= imp.t_end) P.from_t = 0;          // otherwise nothing would be left
+  sourceUi(); changed({ shape: true });
+};
+// Past plans: any checked plan back on screen with its result, ready to run without planning again
+async function loadPast() {
+  try {
+    const L = await (await fetch("/api/plans")).json();
+    const when = n => { const m = n.match(/layout-(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/); return m ? `${+m[3]} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m[2] - 1]} ${m[4]}:${m[5]}` : n; };
+    const what = p => p.source.startsWith("att-") ? "attractor" : p.source.startsWith("sim-") ? `simulator path from t ${p.from_t}` : `built-in model from t ${p.from_t}`;
+    const keep = $("pastPlans").value;
+    $("pastPlans").innerHTML = L.length ? L.map(p => `<option value="${p.name}"${p.source_ok ? "" : " disabled"}>${when(p.name)} · ${what(p)} · ${(p.total_mm / 1000).toFixed(1)} m` +
+      `${p.light ? " · light" : ""} · ${p.clear ? "all clear" : "had problems"}${p.source_ok ? "" : " · path file gone"}</option>`).join("") : `<option value="">none yet</option>`;
+    if (keep && L.some(p => p.name === keep)) $("pastPlans").value = keep;
+  } catch (e) { $("pastNote").textContent = "Couldn't list past plans: " + e.message; }
+}
+$("pastLoad").onclick = async () => {
+  const name = $("pastPlans").value; if (!name) return;
+  $("pastNote").textContent = "Loading…";
+  try {
+    const r = await fetch("/api/loadplan", { method: "POST", body: JSON.stringify({ name }) }), d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    const q = d.params;
+    for (const k of FIELDS) if (q[k] !== undefined) P[k] = k === "lift" ? Math.round(q[k] * 1000) : q[k];
+    P.light = !!q.light; $("light").checked = P.light;
+    await loadSources(q.source || "");
+    syncFields(); changed({ shape: true, reach: true }); pollJob();
+    $("pastNote").textContent = `${name} is loaded and is the current result: Draw it again from below, no planning needed.`;
+  } catch (e) { $("pastNote").textContent = "Couldn't load it: " + e.message; }
+};
+loadPast(); setInterval(loadPast, 60000);
+
+let ATT = [];
+fetch("/api/attractors").then(r => r.json()).then(a => {
+  ATT = a; $("attKind").innerHTML = a.map(x => `<option value="${x.kind}">${x.label}</option>`).join("");
+  const pick = () => { const x = ATT.find(y => y.kind === $("attKind").value); $("attDur").value = x.duration; $("attAbout").textContent = x.about; };
+  $("attKind").onchange = pick; pick();
+});
+$("attMake").onclick = async () => {
+  $("attAbout").textContent = "Working it out…";
+  try {
+    const r = await fetch("/api/attractor", { method: "POST", body: JSON.stringify({ kind: $("attKind").value, duration: +$("attDur").value, seed: +$("attSeed").value }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error);
+    P.from_t = 0;                                   // the whole of it
+    if (!P.light) { P.light = true; $("light").checked = true; }   // an attractor crosses itself: light only
+    await loadSources(d.name);
+    $("attAbout").textContent = ATT.find(y => y.kind === $("attKind").value).about + ". Made: it's now the path.";
+    changed({ shape: true, reach: true });
+  } catch (e) { $("attAbout").textContent = "Couldn't make it: " + e.message; }
+};
+$("loadFile").onclick = () => $("fileIn").click();
+$("fileIn").onchange = async () => {
+  const f = $("fileIn").files[0]; if (!f) return;
+  try {
+    const r = await fetch("/api/import", { method: "POST", body: await f.text() }), d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    await loadSources(d.name); changed({ shape: true });
+  } catch (e) { $("sourceInfo").textContent = "Couldn't load it: " + e.message; }
+  $("fileIn").value = "";
+};
+
+for (const k of FIELDS) $(k).addEventListener("change", () => {
+  const v = parseFloat($(k).value);
+  if (!isFinite(v)) { syncFields(); return; }
+  P[k] = k === "preset" ? Math.max(0, Math.round(v)) : k === "scale" ? Math.max(10, Math.min(4000, v)) : k === "seconds" ? Math.max(1, v) : k === "from_t" || k === "lift" ? Math.max(0, v) : v;
+  changed({ shape: ["preset", "seconds", "scale", "from_t"].includes(k), reach: k === "table" });
+});
+$("use_sweep").onchange = () => changed();
+$("show_arm").onchange = () => draw();
+$("light").checked = !!P.light;
+$("light").onchange = () => {
+  P.light = $("light").checked; syncFields();
+  changed({ reach: true });
+};
+function showTable(t) {
+  const rows = t.touches.map((p, i) => `#${i + 1} at ${p.at}: x ${p.tip[0].toFixed(3)} y ${p.tip[1].toFixed(3)} z ${p.tip[2].toFixed(4)} m`);
+  let sumry = t.touches.length ? `<b style="color:#1d1e20">Table at z ${t.mean.toFixed(4)} m</b> from ${t.touches.length} touch${t.touches.length > 1 ? "es" : ""}, ${t.spread_mm} mm between highest and lowest` +
+    (t.tilt_deg !== undefined ? `, off level by ${t.tilt_deg}°` : t.touches.length >= 3 ? ", spread the touches further apart (not in a line) to see how level it is" : ", capture 3 or more, spread apart, to see how level it is") +
+    (t.spread_mm > 3 ? `. <span class="warn">That's a lot of spread: check the tip touched each time, or shim the table.</span>` : ".") : "";
+  const saved = t.saved ? `<br>In use: z ${t.saved.z} m (measured ${t.saved.when}).` : "<br>No measured height saved yet: 0.16 m is the painting rig's figure.";
+  $("tOut").innerHTML = rows.join("<br>") + (rows.length ? "<br>" : "") + sumry + saved;
+  $("tUse").disabled = !t.touches.length; tableNow = t;
+}
+let tableNow = null;
+$("tCap").onclick = async () => {
+  $("tOut").textContent = "Reading the arm…";
+  const r = await fetch("/api/table/capture", { method: "POST", body: "{}" }), d = await r.json();
+  if (!r.ok) { $("tOut").textContent = d.error; return; } showTable(d);
+};
+$("tClear").onclick = async () => showTable(await (await fetch("/api/table/clear", { method: "POST", body: "{}" })).json());
+$("tUse").onclick = async () => {
+  const z = +tableNow.mean.toFixed(4);
+  const r = await fetch("/api/table/save", { method: "POST", body: JSON.stringify({ z }) }), d = await r.json();
+  if (!r.ok) { $("tOut").innerHTML += `<br><span class="bad">Not saved: ${d.error}</span>`; return; }
+  showTable(d); P.table = z; changed({ reach: true });
+};
+fetch("/api/table").then(r => r.json()).then(t => {
+  showTable(t);
+  if (t.saved && !localStorage.getItem("homeostat-layout")) { P.table = t.saved.z; changed({ reach: true }); }
+});
+$("flat").onclick = () => { P.roll = 0; P.pitch = 0; changed(); };
+$("fit").onclick = () => {          // largest scale at which every point is inside the reach (and sweep), same centre
+  if (!base || !reachMap) return;
+  const keep = P.scale, ok = s => { P.scale = s; return placed().every(p => reachAt(p) > 0 && inSweep(p)); };
+  let lo = 10, hi = 1000;
+  if (!ok(lo)) { P.scale = keep; $("hint").textContent = "Even at 10 mm per 90° part of it is outside the reach here: move it first."; return; }
+  for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (ok(m)) lo = m; else hi = m; }
+  P.scale = Math.floor(lo * 0.97); changed({ shape: true });
+};
+function frameObject() { const W = placed(); if (!W.length) return; cam.target = [0, 1, 2].map(k => W.reduce((a, v) => a + v[k], 0) / W.length);
+  const size = Math.max(...[0, 1, 2].map(k => Math.max(...W.map(v => v[k])) - Math.min(...W.map(v => v[k]))));
+  cam.zoom = Math.max(1.2, Math.min(12, 1.1 / size)); draw(); }
+$("view-obj").onclick = frameObject;
+$("view-all").onclick = () => { Object.assign(cam, { zoom: 1.0, target: [0.3, 0, 0.3] }); draw(); };
+$("quick").onclick = () => scheduleQuick(true);
+
+// ------------------------------------------------------------------ plan jobs
+async function startPlan(check) {
+  const r = await fetch("/api/plan", { method: "POST", body: JSON.stringify(Object.assign(body(), { check })) });
+  const d = await r.json(); if (!r.ok) { $("jobOut").innerHTML = `<span class="bad">${d.error}</span>`; return; }
+  pollJob();
+}
+$("plan").onclick = () => startPlan(false);
+$("planCheck").onclick = () => startPlan(true);
+let lastJob = null, pendingAction = null, armMoving = false;
+async function pollLive() {
+  try {
+    const d = await (await fetch("/api/live")).json();
+    if (d.active && !wasLive) trail = [];                   // a new run: start a fresh trail
+    wasLive = !!d.active;
+    if (d.points) { live = d; if (d.active) { trail.push(d.points[d.points.length - 1]); if (trail.length > 4000) trail.shift(); } }
+    draw();
+  } catch (e) { }
+  setTimeout(pollLive, armMoving || wasLive ? 120 : 3000);
+}
+function stopNow() { $("runNote").textContent = "Stopping…"; fetch("/api/stop", { method: "POST", body: "{}" }).then(pollJob); }
+addEventListener("keydown", e => {
+  if (armMoving && (e.key === "Escape" || e.key === " ")) { e.preventDefault(); stopNow(); return; }
+  if (e.key === "Escape" && e.target.tagName !== "INPUT") { selected = false; hover = null; draw(); }
+});
+// the plan's params come back from the server with lift in metres; the page keeps it in mm
+const sameParams = p => !!p && (p.source || "") === (P.source || "") && !!p.light === !!P.light && FIELDS.every(k => Math.abs((k === "lift" ? p[k] * 1000 : p[k]) - P[k]) < 1e-6);
+async function pollJob() {
+  let j;
+  try { j = await (await fetch("/api/job")).json(); }
+  catch (e) { setTimeout(pollJob, 2000); return; }        // the editor is restarting: keep asking
+  renderJob(j);
+  if (j.state === "running") setTimeout(pollJob, j.kind === "plan" ? 1500 : 800);
+}
+// where a plan has got to, from its log: finding clear directions ~60%, solving the joints ~30%, the arm check the rest
+function planProgress(log) {
+  let frac = 0.02, what = "Starting";
+  const passes = log.filter(l => l.includes("smoothing the directions")).length;
+  for (const l of log) {
+    let m;
+    if ((m = l.match(/finding clear directions: point (\d+) of (\d+)/))) { frac = 0.6 * m[1] / m[2]; what = `Step 1 of 3: finding clear directions, point ${m[1]} of ${m[2]}`; }
+    else if (l.includes("smoothing the directions")) { frac = 0.6; what = `Step 2 of 3: solving the arm's joints${passes > 1 ? ", pass " + passes : ""}`; }
+    else if ((m = l.match(/solving the arm's joints: point (\d+) of (\d+)/))) { frac = 0.6 + 0.3 * m[1] / m[2]; what = `Step 2 of 3: solving the arm's joints${passes > 1 ? " (pass " + passes + ")" : ""}, point ${m[1]} of ${m[2]}`; }
+    else if (l.includes("checking on the arm")) { frac = 0.92; what = "Step 3 of 3: checking on the arm (no motion)"; }
+    else if ((m = l.match(/^\S+\s+checking (\d+) of (\d+) points/))) { frac = 0.92; what = `Step 3 of 3: checking ${m[1]} of ${m[2]} points on the arm (no motion)`; }
+    else if ((m = l.match(/^\S+\s+point (\d+) of (\d+)$/)) && frac >= 0.92) { frac = 0.92 + 0.07 * m[1] / m[2]; what = `Step 3 of 3: checking on the arm (no motion), point ${m[1]} of ${m[2]}`; }
+  }
+  return { frac, what };
+}
+function renderJob(j) {
+  lastJob = j; if (!j) return;
+  const running = j.state === "running", moving = running && j.kind !== "plan";
+  $("plan").disabled = $("planCheck").disabled = running;
+  $("log").hidden = !j.log.length; $("log").textContent = j.log.join("\n"); $("log").scrollTop = 1e9;
+  const r = j.result, c = r && r.check, clear = !!c && !(c.ik_refused + c.clashes + c.traj_errors), same = r && sameParams(r.params);
+  let html = "";
+  if (running && j.kind === "plan") {
+    const el = Math.max(0, Math.round(j.now - j.started)), last = [...j.log].reverse().find(l => !l.includes(" $ ")) || "";
+    html = `<span class="muted">Planning, ${Math.floor(el / 60)}:${String(el % 60).padStart(2, "0")} so far. Big layouts take several minutes on the Pi.<br>${last.replace(/^\S+\s+/, "").trim()}</span>`;
+  }
+  else if (j.state === "failed" && j.kind === "plan") html = `<span class="bad">The plan failed: see the log.</span>`;
+  else if (r) {
+    html = `<div class="card"><b class="${r.fails ? "bad" : "good"}">${(100 * r.printable_mm / r.total_mm).toFixed(0)}% printable</b> (${r.printable_mm.toFixed(0)} of ${r.total_mm.toFixed(0)} mm; ${r.fails} of ${r.points} points without a safe pose)` +
+      (c ? `<br>Arm check: IK refused ${c.ik_refused}, clashes ${c.clashes}, trajectory errors ${c.traj_errors}, worst joint difference ${c.worst_dq}° <b class="${clear ? "good" : "bad"}">${clear ? "all clear" : "problems"}</b>` : "<br><span class='muted'>Not checked on the arm.</span>") +
+      (same ? "" : `<br><span class="warn">This result is for an earlier placement (${r.params.source ? "simulator path " + r.params.source + ", " : ""}scale ${r.params.scale}, x ${r.params.x}, y ${r.params.y}, turn ${r.params.yaw}°), not what's on screen now.</span>`) +
+      `<br><a href="${r.viewer}" target="_blank" rel="noopener">Open ${r.name} in the viewer</a></div>`;
+  }
+  $("jobOut").innerHTML = html;
+  const planning = running && j.kind === "plan";
+  $("planBar").hidden = !planning;
+  if (planning) { const p = planProgress(j.log); $("planBarFill").style.width = (100 * p.frac).toFixed(1) + "%"; $("planBarText").textContent = `${Math.round(100 * p.frac)}% · ${p.what}`; }
+  // air-run: only a plan that matches the screen and passed the arm check
+  const ready = !!(j.on_arm && r && clear && same);
+  $("runBox").hidden = !j.on_arm;
+  const lightPlan = !!(r && r.params && r.params.light);
+  $("lightOpts1").hidden = $("lightOpts2").hidden = !lightPlan;
+  $("raiseBox").hidden = lightPlan;            // a light drawing runs where it was planned
+  $("airrun").textContent = lightPlan ? "Draw with light…" : "Air-run…";
+  document.querySelectorAll(".lightOnly").forEach(o => { o.hidden = !lightPlan; if (!lightPlan && o.selected) $("fast").value = "4"; });
+  loadTimes(lightPlan ? r.name : null);
+  shutterCue(j, moving);
+  $("airrun").disabled = running || !ready;
+  $("park").disabled = running;
+  $("gripOpen").disabled = $("gripClose").disabled = running;
+  $("stopArm").hidden = !moving; armMoving = moving;
+  if (moving) $("confirmBox").hidden = true;
+  $("runNote").textContent =
+    moving ? (j.kind === "park" ? "Parking at Home…" : j.kind === "grip" ? "The gripper is moving…" : j.log.some(l => l.includes("MOVING THE ARM")) ? "The arm is moving." : "Asking the arm whether it can run this (no motion yet)…") :
+    j.kind === "airrun" && j.state === "failed" ? "The air-run didn't happen or didn't finish: " + (([...j.log].reverse().find(l => l.includes("FAILED: ")) || "").split("FAILED: ")[1] || "see the log.") :
+    j.kind === "airrun" && j.state === "done" ? "Air-run finished; the arm is back at Home." :
+    j.kind === "park" && j.state === "failed" ? "Parking didn't finish: see the log." :
+    j.kind === "park" && j.state === "done" ? "Parked at Home." :
+    j.kind === "grip" ? ((([...j.log].reverse().find(l => l.includes("fingers stopped") || l.includes("FAILED: ")) || "Gripper: see the log.").trim())) :
+    ready ? `Ready to air-run ${r.name}. The arm has to start at Home.` :
+    "Plan and check this placement on the arm first; the air-run follows that checked plan.";
+}
+// SHUTTER lines from air_run.py: a big countdown and beeps, for working the camera in the dark
+let audio = null, cueSeen = 0, cueTimer = null;
+function beep(n, hz) {
+  if (!audio) return;
+  for (let i = 0; i < n; i++) {
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime + i * 0.25;
+    o.frequency.value = hz; g.gain.setValueAtTime(0.25, t); g.gain.setValueAtTime(0, t + 0.15);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.16);
+  }
+}
+function shutterCue(j, moving) {
+  const box = $("shutterCue");
+  if (!moving) { box.hidden = true; $("goBox").hidden = true; clearInterval(cueTimer); cueSeen = 0; return; }
+  const cues = j.log.map((l, i) => [l, i]).filter(([l]) => /SHUTTER (OPEN|CLOSE)|LIGHT O(N|FF)|WAITING AT THE (START|END)|CONTINUE pressed/.test(l));
+  if (!cues.length) return;
+  const [l, i] = cues[cues.length - 1];
+  if (i + 1 <= cueSeen) return;
+  cueSeen = i + 1; clearInterval(cueTimer); box.hidden = false; $("goBox").hidden = true;
+  if (/WAITING AT THE START/.test(l)) {
+    box.textContent = "At the start, waiting"; box.style.background = "#8a5a00"; beep(2, 660);
+    $("goText").innerHTML = "The arm is still at the start of the drawing. Switch the light on, the room lights off, then press " +
+      "Continue: <b>start the camera</b> during the countdown that follows, and it draws.";
+    $("goBox").hidden = false; return;
+  }
+  if (/WAITING AT THE END/.test(l)) {
+    box.textContent = "Drawing done: stop the camera"; box.style.background = "#3b6fd6"; beep(2, 440);
+    $("goText").innerHTML = "The drawing is finished and the arm is holding still at its end. <b>Stop the camera</b>, then press " +
+      "Continue: the arm leaves the safe way and goes Home.";
+    $("goBox").hidden = false; return;
+  }
+  if (/CONTINUE pressed/.test(l)) { box.textContent = "Going on…"; box.style.background = "#8a5a00"; return; }
+  if (/LIGHT ON/.test(l)) { box.textContent = "Drawing: light on"; box.style.background = "#2e7d4f"; beep(1, 660); return; }
+  if (/LIGHT OFF/.test(l)) { box.textContent = "Light off"; box.style.background = "#1d1e20"; return; }
+  const open = /OPEN/.test(l), secs = parseFloat((l.match(/: ([\d.]+) s/) || [0, 5])[1]), t0 = Date.now();
+  box.style.background = open ? "#c0392b" : "#3b6fd6";
+  beep(open ? 3 : 2, open ? 880 : 440);
+  const tick = () => {
+    const left = Math.max(0, Math.ceil(secs - (Date.now() - t0) / 1000));
+    box.textContent = (open ? "Start the camera now" : "Stop the camera now") + (left ? ` · ${left}` : "");
+    if (!left) clearInterval(cueTimer);
+  };
+  tick(); cueTimer = setInterval(tick, 200);
+}
+function ask(html, action, go) { $("confirmText").innerHTML = html; $("confirmGo").textContent = go || "Move the arm"; $("confirmBox").hidden = false; pendingAction = action; }
+$("goBtn").onclick = async () => {
+  audio = audio || new AudioContext(); audio.resume();
+  $("goBtn").disabled = true;
+  try { const r = await fetch("/api/continue", { method: "POST", body: "{}" }); if (!r.ok) $("runNote").textContent = (await r.json()).error; }
+  finally { setTimeout(() => { $("goBtn").disabled = false; }, 1500); }
+};
+$("confirmCancel").onclick = () => { $("confirmBox").hidden = true; pendingAction = null; };
+$("confirmGo").onclick = () => { $("confirmBox").hidden = true; const a = pendingAction; pendingAction = null; if (a) a(); };
+async function postJob(url, b) {
+  const r = await fetch(url, { method: "POST", body: JSON.stringify(b) }), d = await r.json();
+  pollJob(); if (!r.ok) setTimeout(() => { $("runNote").textContent = d.error; }, 300);
+}
+// how long a light drawing runs at each speed, worked out on the server (cached per plan)
+const FAST_NAMES = { 1: "print speed", 2: "2× faster", 3: "3× faster", 4: "4× faster", 6: "6× faster", 8: "8× faster" };
+let times = null, timesFor = null;
+const mins = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+function showTimes() {
+  for (const o of $("fast").options) {
+    const t = times && times.times[o.value];
+    o.textContent = FAST_NAMES[o.value] + (t ? ` · ${mins(t.s)}` : "");
+  }
+  $("fastNote").textContent = !timesFor ? "" : !times ? "Timing the drawing at each speed…" : (() => {
+    const t = times.times[$("fast").value]; if (!t) return "";
+    const capped = t.mm_s < 10 * +$("fast").value * 0.99;
+    return `Drawing ${mins(t.s)} (${(times.length_mm / 1000).toFixed(1)} m at ${Math.round(t.mm_s)} mm/s${capped ? ", as fast as its curves allow" : ""}), ` +
+           `plus about ${mins(times.extra_s)} getting there and back and the two shutter pauses.`;
+  })();
+}
+async function loadTimes(name) {
+  if (name === timesFor) return;
+  timesFor = name; times = null; showTimes();
+  if (!name) return;
+  try {
+    const r = await fetch("/api/runtimes?" + qs({ name })), d = await r.json();
+    if (r.ok && timesFor === name) { times = d; showTimes(); }
+  } catch (e) { if (timesFor === name) timesFor = null; }
+}
+$("fast").addEventListener("change", showTimes);
+$("airrun").onclick = () => {
+  const r = lastJob && lastJob.result, mm = parseFloat($("raise_mm").value);
+  if (!(mm >= 0 && mm <= 100)) { $("runNote").textContent = "Raise has to be 0 to 100 mm."; return; }
+  const fast = +$("fast").value;
+  if (r.params && r.params.light) {
+    const pin = +$("light_pin").value, hold = parseFloat($("hold_s").value);
+    if (!(hold >= 0 && hold <= 60)) { $("runNote").textContent = "The camera countdown has to be 0 to 60 s."; return; }
+    const tt = times && times.name === r.name && times.times[fast];
+    return ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than planned` : ""}.</b>${tt ? ` The drawing takes about <b>${mins(tt.s)}</b>.` : ""} From Home down to the start of ${r.name}, ` +
+               `and <b>waits there until you press Continue</b> (two beeps): switch the light on and the room lights off meanwhile. ` +
+               `After Continue it counts down ${hold} s: <b>start the camera</b> (three high beeps). ` +
+               `${pin ? `The light on wrist pin ${pin} comes on and ` : ""}it draws the path, ${pin ? "the light goes off, " : ""}then <b>waits again until you press Continue</b> (two low beeps): <b>stop the camera</b> first. Then it leaves the safe way and goes Home. ` +
+               `Keep this page in front: the countdown shows here. Stand at the arm with the e-stop in reach.`,
+               () => { audio = audio || new AudioContext(); audio.resume(); beep(1, 660);
+                       postJob("/api/airrun", { name: r.name, raise_mm: 0, fast, light_pin: pin, hold_s: hold }); });
+  }
+  ask(`<b>The arm will move${fast > 1 ? `, ${fast}× faster than printing` : ""}.</b> From Home to above the start of ${r.name}, along the path ${mm} mm above the planned height, ` +
+      `then straight up and back to Home. Nothing is extruded. Stand at the arm with the e-stop in reach: a Stop button shows here while it runs.`,
+      () => postJob("/api/airrun", { name: r.name, raise_mm: mm, fast }));
+};
+$("park").onclick = () => ask(`<b>The arm will move</b> to Home the safe way: back out along the nozzle, rise above the print, then Home. ` +
+                              `The way out is checked against the last plan run before anything moves; if it isn't clear, nothing moves.`,
+                              () => postJob("/api/park", {}));
+$("gripOpen").onclick = () => ask(`<b>The gripper will open.</b> Whatever it is holding (the light, the hot end) <b>will drop</b>: hold it first.`,
+                                  () => postJob("/api/grip", { action: "open", speed: 0.3 }), "Open the gripper");
+$("gripClose").onclick = () => ask(`<b>The gripper will close slowly</b> until it meets something, then keep squeezing it with its full grip force. ` +
+                                   `Keep fingers out. Stop (Esc or Space) halts the fingers where they are.`,
+                                   () => postJob("/api/grip", { action: "close", speed: +$("gripSpeed").value }), "Close the gripper");
+$("stopArm").onclick = stopNow;
+
+// ------------------------------------------------------------------ start
+(async function () {
+  syncFields(); $("hint").textContent = HINT;
+  fetch("/api/sweep").then(r => r.json()).then(function poll(d) {
+    if (d.state === "loading") return setTimeout(() => fetch("/api/sweep").then(r => r.json()).then(poll), 1500);
+    sweep = d.sweep; $("sweepInfo").textContent = sweep ? `(${sweep[0]}° to ${sweep[1]}°)` : `(${d.state})`;
+    $("use_sweep").disabled = !sweep; render();
+  });
+  fetch("/api/armref").then(r => r.json()).then(d => { armRef = d.points; draw(); });
+  pollLive();
+  window.name = "homeostat-editor";      // Send to the arm in the simulator opens paths in this tab
+  const want = new URLSearchParams(location.search).get("import");       // "Place it in the layout editor" from the simulator
+  if (want) history.replaceState(null, "", location.pathname);
+  await loadSources(want || undefined);
+  if (want) { const imp = IMPORTS.find(i => i.name === want); if (imp && P.from_t >= imp.t_end) P.from_t = 0; }
+  await Promise.all([loadShape(), loadReach()]);
+  frameObject(); scheduleQuick(true); pollJob();
+})();
+</script>
+
+<div id="verTag" style="position:fixed;right:8px;bottom:6px;font:11px system-ui;color:#8a887f;z-index:50"></div>
+<div id="verNew" hidden style="position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#8a5a00;color:#fff;padding:10px 16px;border-radius:6px;font:15px system-ui;cursor:pointer">
+  The software on armster has been updated. <b><u>Reload this page</u></b> to use it.</div>
+<script>
+// which version is running on armster, and a nudge when it changes under an open page
+(() => {
+  let seen = null;
+  const tag = document.getElementById("verTag"), nw = document.getElementById("verNew");
+  nw.onclick = () => location.reload();
+  const fmt = v => v.label || v.commit;
+  async function check() {
+    try {
+      const v = await (await fetch("/api/version")).json(), key = v.commit + "/" + (v.deployed || "") + "/" + (v.changes || 0);
+      if (seen === null) { seen = key; tag.textContent = "version " + fmt(v); tag.title = v.deployed ? "deployed " + v.deployed : ""; }
+      else if (key !== seen) { nw.hidden = false; tag.textContent = "version " + fmt(v) + " on armster (this page is older)"; }
+    } catch (e) { /* not served by the editor, or it is restarting */ }
+  }
+  check(); setInterval(check, 15000);
+})();
+</script>
+</body></html>

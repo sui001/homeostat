@@ -1,0 +1,22 @@
+[Unit]
+Description=Homeostat print layout editor (plans and checks; moves the arm only for a confirmed air-run or park)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/homeostat-arm/arm
+# The kortex virtualenv: the arm check (arm_sim.py) needs kortex_api, the rest needs numpy.
+ExecStart=/home/pi/kinova-py310/bin/python /home/pi/homeostat-arm/arm/editor.py
+Environment=EDITOR_ON_ARM=1
+# Listen on the Tailscale address only: not on the arm's wired network, not on the Wi-Fi.
+# Until Tailscale is up at boot the editor exits, and systemd tries again.
+Environment=EDITOR_HOST=tailscale
+Environment=EDITOR_PORT=8792
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+air_run_log.json
+*.log
+arm/plans/
+arm/air_run_refused.json
+arm/plans/imports/
+arm/live.json
+arm/live.json.tmp
+arm/plans/last_run.json
+arm/plans/table.json
+arm/VERSION
+fader/homeostat_fader/version.h
+fader/homeostat_fader/build/

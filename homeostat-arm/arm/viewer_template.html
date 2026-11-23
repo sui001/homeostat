@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Homeostat print: Kinova sim</title>
+<style>
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #f6f5f1; color: #1d1e20; }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px; }
+  h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #66655f; margin: 0 0 12px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  canvas { background: #fff; border: 1px solid #dddcd6; border-radius: 6px; touch-action: none; }
+  #view { width: 100%; max-width: 720px; aspect-ratio: 6 / 5; height: auto; cursor: grab; }
+  .side { flex: 1; min-width: 300px; }
+  .ctl { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+  input[type=range] { flex: 1; }
+  button { font: inherit; padding: 4px 12px; border: 1px solid #b9b7af; background: #fff; border-radius: 4px; cursor: pointer; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-variant-numeric: tabular-nums; }
+  dt { color: #66655f; } dd { margin: 0; }
+  .bad { color: #c0392b; font-weight: 600; } .good { color: #1e7d45; }
+  #chart { width: 100%; height: 150px; }
+  .key span { display: inline-block; margin-right: 12px; } .sw { display:inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 4px; }
+  pre { background: #fff; border: 1px solid #dddcd6; padding: 8px; font-size: 12px; white-space: pre-wrap; border-radius: 6px; }
+</style></head>
+<body><main>
+<h1>Homeostat strand: Kinova Gen3 extrusion sim</h1>
+<p class="sub" id="sub"></p>
+<div class="row">
+  <canvas id="view" width="1440" height="1200" aria-label="3-D view of the arm printing the strand; drag to turn, wheel to zoom"></canvas>
+  <div class="side">
+    <div class="ctl"><button id="play">Play</button><button id="fit">Whole arm</button><input type="range" id="k" min="0" value="0"><span id="kOut"></span></div>
+    <dl id="info"></dl>
+    <p class="key"><span><i class="sw" style="background:#1d1e20"></i>printed</span><span><i class="sw" style="background:#cfcdc4"></i>still to print</span><span><i class="sw" style="background:#e0533d"></i>no safe pose</span><span><i class="sw" style="background:#3b6fd6"></i>arm</span><span><i class="sw" style="background:#e39b25"></i>hot end</span></p>
+    <h3 style="margin:14px 0 4px;font-size:14px">Clearance along the print (mm, after margins; below 0 = too close)</h3>
+    <canvas id="chart" width="760" height="300"></canvas>
+    <p class="key"><span><i class="sw" style="background:#e39b25"></i>hot end to strand/table</span><span><i class="sw" style="background:#3b6fd6"></i>arm links to strand/table</span></p>
+    <pre id="check"></pre>
+  </div>
+</div>
+</main>
+<script>
+"use strict";
+const D = /*DATA*/null;
+const $ = id => document.getElementById(id);
+const S = D.strand, F = D.frames, n = S.length;
+const okN = F.filter(Boolean).length;
+$("sub").textContent = `${n} points, 2 mm apart, outside in. ${okN} with a safe pose, ${n - okN} without. Scale ${D.params.scale} mm per 90°, centred at x ${D.params.x} m, y ${D.params.y} m, table z ${D.params.table} m.`;
+$("k").max = n - 1;
+// strand arc length
+const arc = [0]; for (let i = 1; i < n; i++) arc.push(arc[i - 1] + Math.hypot(S[i][0] - S[i-1][0], S[i][1] - S[i-1][1], S[i][2] - S[i-1][2]));
+
+const cv = $("view"), g = cv.getContext("2d");
+const mid = [0, 1, 2].map(k => S.reduce((a, p) => a + p[k], 0) / S.length);
+const cam = { yaw: -0.9, pitch: 0.35, zoom: 2.2, target: [mid[0] - 0.12, mid[1], mid[2]] };
+function proj(p) {
+  let x = p[0] - cam.target[0], y = p[1] - cam.target[1], z = p[2] - cam.target[2];
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  const x1 = cy * x - sy * y, y1 = sy * x + cy * y;           // turn about z
+  const y2 = cp * y1 - sp * z, z2 = sp * y1 + cp * z;          // tip toward viewer
+  const f = 1200 * cam.zoom, d = 2.2;
+  const k = f / (d - y2);
+  return [cv.width / 2 + x1 * k, cv.height * 0.62 - z2 * k, y2];
+}
+function line(a, b, col, w) { const p = proj(a), q = proj(b); g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); }
+function nearestOk(k) { for (let j = k; j >= 0; j--) if (F[j]) return j; return -1; }
+
+function cylinder(tip, ax, z0, z1, r, col) {
+  // a few generator lines + end rings
+  const a = ax, h = Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  let u = [a[1]*h[2]-a[2]*h[1], a[2]*h[0]-a[0]*h[2], a[0]*h[1]-a[1]*h[0]]; const ul = Math.hypot(...u); u = u.map(v => v / ul);
+  const v = [a[1]*u[2]-a[2]*u[1], a[2]*u[0]-a[0]*u[2], a[0]*u[1]-a[1]*u[0]];
+  const ring = z => { const pts = []; for (let t = 0; t <= 16; t++) { const c = Math.cos(t * Math.PI / 8) * r, s = Math.sin(t * Math.PI / 8) * r; pts.push([0,1,2].map(i => tip[i] + a[i] * z + u[i] * c + v[i] * s)); } return pts; };
+  const r0 = ring(z0), r1 = ring(z1);
+  g.strokeStyle = col; g.lineWidth = 2;
+  for (const R of [r0, r1]) { g.beginPath(); R.forEach((p, i) => { const q = proj(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.stroke(); }
+  for (let t = 0; t < 16; t += 4) line(r0[t], r1[t], col, 2);
+}
+
+function draw() {
+  const k = +$("k").value;
+  g.clearRect(0, 0, cv.width, cv.height);
+  // table grid
+  const tz = D.params.table;
+  for (let x = -0.2; x <= 0.8001; x += 0.1) line([x, -0.4, tz], [x, 0.4, tz], "#ecebe6", 1.5);
+  for (let y = -0.4; y <= 0.4001; y += 0.1) line([-0.2, y, tz], [0.8, y, tz], "#ecebe6", 1.5);
+  // the post the anchor sits on
+  if (S[0][2] > tz + 0.001) line([S[0][0], S[0][1], tz], [S[0][0], S[0][1], S[0][2]], "#8f8e89", 8);
+  // strand: future faint, printed dark, failures red
+  for (let i = 1; i < n; i++) line(S[i-1], S[i], i <= k ? "#1d1e20" : "#d9d7cf", i <= k ? 3 : 2);
+  F.forEach((f, i) => { if (!f) { const p = proj(S[i]); g.fillStyle = "#e0533d"; g.beginPath(); g.arc(p[0], p[1], 4, 0, 7); g.fill(); } });
+  // arm
+  const j = nearestOk(k);
+  if (j >= 0) {
+    const f = F[j], P = f.p;
+    for (let i = 1; i < P.length - 1; i++) line(P[i-1], P[i], "#3b6fd6", i < 2 ? 22 : 16);
+    P.slice(0, -1).forEach(p => { const q = proj(p); g.fillStyle = "#26478f"; g.beginPath(); g.arc(q[0], q[1], 7, 0, 7); g.fill(); });
+    for (const [name, z0, z1, r] of D.hotend) cylinder(P[P.length - 1], f.ax, z0, z1, r, "#e39b25");
+  }
+  const f = F[k];
+  const rows = [["point", `${k} of ${n - 1}`], ["strand printed", `${(arc[k] * 1000).toFixed(0)} of ${(arc[n-1] * 1000).toFixed(0)} mm`],
+    ["tip (m)", S[k].map(v => v.toFixed(3)).join(", ")]];
+  if (f) rows.push(["nozzle tilt", `${f.tilt}° from straight down`], ["hot end clearance", `<span class="${f.h < 1 ? 'bad' : 'good'}">${f.h.toFixed(1)} mm</span>`],
+                   ["arm clearance", `<span class="${f.a < 1 ? 'bad' : 'good'}">${f.a.toFixed(1)} mm</span>`], ["joints (°)", f.q.join(", ")]);
+  else rows.push(["pose", `<span class="bad">no safe pose found here</span>`]);
+  $("info").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  $("kOut").textContent = k;
+  drawChart(k);
+}
+const ch = $("chart"), cg = ch.getContext("2d");
+function drawChart(k) {
+  const W = ch.width, H = ch.height, top = 60, lo = -5;
+  const Y = v => H - 20 - (Math.max(lo, Math.min(top, v)) - lo) / (top - lo) * (H - 30), X = i => 40 + i / (n - 1) * (W - 50);
+  cg.clearRect(0, 0, W, H); cg.font = "20px system-ui"; cg.fillStyle = "#66655f";
+  for (const v of [0, 20, 40, 60]) { cg.strokeStyle = v ? "#ecebe6" : "#b9b7af"; cg.beginPath(); cg.moveTo(40, Y(v)); cg.lineTo(W - 10, Y(v)); cg.stroke(); cg.fillText(v, 4, Y(v) + 6); }
+  for (const [key, col] of [["h", "#e39b25"], ["a", "#3b6fd6"]]) {
+    cg.strokeStyle = col; cg.lineWidth = 2.5; cg.beginPath(); let pen = false;
+    F.forEach((f, i) => { if (!f) { pen = false; return; } pen ? cg.lineTo(X(i), Y(f[key])) : cg.moveTo(X(i), Y(f[key])); pen = true; });
+    cg.stroke();
+  }
+  F.forEach((f, i) => { if (!f) { cg.fillStyle = "#e0533d"; cg.fillRect(X(i) - 1, H - 18, 2, 14); } });
+  cg.strokeStyle = "#1d1e20"; cg.lineWidth = 1.5; cg.beginPath(); cg.moveTo(X(k), 0); cg.lineTo(X(k), H); cg.stroke();
+}
+if (D.check) {
+  const c = D.check;
+  $("check").textContent = `Checked on the arm (IK + ValidateWaypointList, no motion):\n` +
+    `  IK refused: ${c.ik_refused.length}\n  clashes on the arm's own IK solutions: ${c.clashes.length}\n` +
+    `  worst clearance: hot end ${c.worst_hot_mm.toFixed(1)} mm, arm ${c.worst_arm_mm.toFixed(1)} mm\n` +
+    `  arm IK vs plan: ${c.worst_dq.toFixed(2)}° worst joint difference\n  trajectory errors: ${c.traj_errors.length}` +
+    (c.traj_errors.length ? "\n    " + c.traj_errors.slice(0, 6).map(e => e.join(" ")).join("\n    ") : "");
+} else $("check").textContent = "Not yet checked on the arm.";
+if (D.version) $("check").textContent += `
+Made by software version ${D.version.commit}${D.version.date ? " of " + D.version.date.slice(0, 16).replace("T", " ") : ""}.`;
+
+let drag = null;
+cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); drag = [e.clientX, e.clientY]; cv.style.cursor = "grabbing"; });
+cv.addEventListener("pointermove", e => { if (!drag) return; cam.yaw -= (e.clientX - drag[0]) * 0.01; cam.pitch = Math.max(-0.2, Math.min(1.5, cam.pitch + (e.clientY - drag[1]) * 0.01)); drag = [e.clientX, e.clientY]; draw(); });
+cv.addEventListener("pointerup", () => { drag = null; cv.style.cursor = "grab"; });
+cv.addEventListener("wheel", e => { e.preventDefault(); cam.zoom *= Math.exp(-e.deltaY * 0.001); draw(); }, { passive: false });
+$("k").oninput = draw;
+$("fit").onclick = () => { const w = cam.zoom > 1.5; Object.assign(cam, w ? { zoom: 1, target: [0.3, 0, 0.2] } : { zoom: 2.2, target: [mid[0] - 0.12, mid[1], mid[2]] }); $("fit").textContent = w ? "Close up" : "Whole arm"; draw(); };
+let playing = false;
+$("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; if (playing && +$("k").value >= n - 1) $("k").value = 0; };
+(function loop() { if (playing) { const k = Math.min(n - 1, +$("k").value + 1); $("k").value = k; if (k >= n - 1) { playing = false; $("play").textContent = "Play"; } draw(); } requestAnimationFrame(loop); })();
+draw();
+</script>
+</body></html>
