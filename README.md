@@ -15,6 +15,8 @@ Built by Sui and Thomas for educational and illustrative purposes - to make Ashb
 
 [The first needle, a bench build](https://sui001.github.io/homeostat/visualiser/homeostat_bench_build.html) - one unit's needle from a salvaged hard drive arm, a motor shield and a ToF sensor: schematic, results and firmware.
 
+[Homeostat on the Kinova arm](homeostat-arm/README.md) - extruding the 4-D path of PT's model as a free-standing strand with a Kinova Gen3, and a motorised fader that plays unit TL: it follows TL's needle, and a hand on it holds TL.
+
 ---
 
 ## What is the homeostat?
