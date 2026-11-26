@@ -18,8 +18,10 @@ Framing, kept from the fader: the hand outranks the model. A machine that propos
 overrule.
 
 Status (27 Nov 2026): **node 1 on the bench.** The pot reads cleanly, the motor holds any angle
-within ~1° (`bench/node_v1_6`), calibrated to marks on the faceplate; needle printable
-(`print/needle_v1_0.stl`). Not yet: hand takeover, the unit's equation on the node, the wired ring.
+within ~1°, calibrated to marks on the faceplate, and **a hand can take the needle**
+(`bench/node_v1_7`: push against it and the motor goes slack; leave it still 0.7 s and it holds
+there). Needle printable (`print/needle_v1_0.stl`). Not yet: the unit's equation on the node, the
+wired ring.
 Start with one node; it simulates the other three until real ones join.
 
 ## Parts (one node)
@@ -117,9 +119,16 @@ went), then `homeostat_node/homeostat_node.ino`.
   (`distributed/` notes).
 - **The needle:** the motor follows x on the knob (PD, aim ahead, rate limit; tuning starts from the
   fader's values). DRV8833 at 20 kHz should remove the fader's 500 Hz hum and its 2 V loss.
-- **The hand:** knob more than ~4° from where the motor is taking it, and not coming back → `held`:
-  motor off, x = knob. Released after the knob is still for a while. Judged by displacement, as on the
-  fader (no touch track).
+- **The hand** (working in `node_v1_7`): knob more than ~4° (`HAND_ERR` 22 counts) from where the
+  motor is taking it, and the motor winning back less than 3 counts in 250 ms of pushing → `held`:
+  motor off, x = knob. The first 250 ms of any push is never judged (the motor starts slowly), so
+  ordinary moves don't trip it. Released after the knob is still (±1°) for 0.7 s; the motor then
+  holds where the hand left it. A resting hand counts as letting go, which is harmless. A quick
+  flick is just pulled back. Judged by displacement, as on the fader (no touch track). Live tuning:
+  `he` `hg` `hm` `still`.
+- **The wiper's honesty:** a reading this wiring can't make (above ~1.9 V, i.e. a lost wiper) is
+  never driven on, and 0.3 s of it while driving is a fault. A jump of more than ~22° in one
+  reading is ignored unless it stays for 8 readings.
 - **Modes:** `rest`, `follow`, `held`, `fault` (stuck reading, pushing without moving, or DRV8833 FLT
   low → motor off 3 s, SLP low, retry).
 - **Alone:** a unit with no line from its node for 0.5 s is simulated locally, so one node on the

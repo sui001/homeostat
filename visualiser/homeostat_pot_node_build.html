@@ -192,11 +192,24 @@ body { margin: 0 } img { max-width: 100% }</style>
 </section>
 
 <section>
+  <h2>Day two: the hand</h2>
+  <p>27 November. The motor holds the needle with no time limit; push against it and it goes slack, and the hand has the needle. Leave the knob still for 0.7 s and the motor takes it back, holding it where the hand left it. As on the fader there is no touch sense, so a hand is judged by what it does: the needle more than 4° off, and the motor, after pushing for a quarter of a second, not winning any of it back. The first quarter-second of any push is never judged, because the motor starts slowly, and ordinary moves to ±45° never tripped it.</p>
+  <div class="tw"><table>
+    <tr><th>What the hand did</th><th>What the node did</th></tr>
+    <tr><td>Pushed it up against the motor, then let go</td><td>Hand on at 15.3°; slack under the hand to about 21°; 0.7 s after it stopped, holding 20.9°</td></tr>
+    <tr><td>Dragged it down slowly</td><td>Hand on at 10.7°; followed the hand to −36.7°; let go, held −36.5° to within ±0.4°</td></tr>
+    <tr><td>A quick flick, about 55° in 0.3 s</td><td>Not a hand: let go before the motor had pushed for long. Pulled back to −35.6° in about 4 s</td></tr>
+    <tr><td>Grabbed, pushed to about +17°, and kept a still hand on it</td><td>Hand on, then hand off after 0.7 s still: a resting hand counts as letting go. The motor held 13° quietly under the hand</td></tr>
+  </table></div>
+  <p style="margin-top:10px">No false grabs, no faults. The firmware also stopped trusting the wiper blindly: a reading this wiring can't make (a lost wiper reads about 4095) is never driven on, and a jump of more than about 22° in one reading is ignored unless it stays.</p>
+</section>
+
+<section>
   <h2>Firmware</h2>
   <p>All in <a href="https://github.com/sui001/homeostat/tree/main/node">node/</a> in this repository, for an ESP32-DevKitC-32E (esp32 core 3.x, board "ESP32 Dev Module").</p>
   <div class="tw"><table>
     <tr><th>File</th><th>What it does</th></tr>
-    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_0</code> … <code>v1_6</code></a></td><td>Bring-up. Reads the pot, jogs and holds the motor on command, a speed test, live calibration (<code>lo</code> / <code>zero</code> / <code>hi</code>) and tuning (<code>kp</code> <code>min</code> <code>max</code> <code>db</code>). Each version kept</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_0</code> … <code>v1_7</code></a></td><td>Bring-up. Reads the pot, jogs and holds the motor on command, a speed test, live calibration (<code>lo</code> / <code>zero</code> / <code>hi</code>) and tuning (<code>kp</code> <code>min</code> <code>max</code> <code>db</code>). v1.7: follow with hand takeover (<code>f D</code>; <code>he</code> <code>hg</code> <code>hm</code> <code>still</code>) and the wiper filter. Each version kept</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/blob/main/node/flash.ps1"><code>flash.ps1</code></a></td><td>Writes the version from git, compiles, uploads, shows the boot line</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/print"><code>print/needle_v1_0.py</code></a></td><td>Builds the needle STL and checks it; the STL's header carries the git version</td></tr>
   </table></div>
@@ -217,11 +230,10 @@ body { margin: 0 } img { max-width: 100% }</style>
   <h2>Next</h2>
   <ul>
     <li>Print the needle, check the fit, and re-read the three marks with it on.</li>
-    <li>The hand: push the knob and the motor lets go, the needle goes where the hand puts it, as the fader does. Plus a jump filter for the wiper.</li>
     <li>The unit running on the node: its own equation every 60 ms, three neighbours simulated, the needle following it, and the uniselector firing past ±45°.</li>
     <li>A second node and the wired ring.</li>
   </ul>
-  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>.</p>
+  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Day one recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>; day two on <code>node_v1.7</code>.</p>
 </section>
 </main>
 </body>
