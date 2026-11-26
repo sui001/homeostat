@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!-- homeostat pot node: one unit. ESP32-DevKitC-32E + Adafruit DRV8833 + Alps 16 mm motorised 100k pot -->
+  <rect width="1000" height="640" fill="#fbfaf7"/>
+  <text x="40" y="40" font-size="20" font-weight="bold" fill="#222">Homeostat pot node: one unit</text>
+  <text x="40" y="60" fill="#666">ESP32-DevKitC-32E · Adafruit DRV8833 · Alps 16 mm motorised pot, 100 kΩ</text>
+
+  <!-- legend -->
+  <g font-size="12" fill="#444">
+    <line x1="640" y1="34" x2="664" y2="34" stroke="#c0392b" stroke-width="3"/><text x="670" y="38">3V3 / motor +</text>
+    <line x1="770" y1="34" x2="794" y2="34" stroke="#222" stroke-width="3"/><text x="800" y="38">GND</text>
+    <line x1="850" y1="34" x2="874" y2="34" stroke="#2471a3" stroke-width="3"/><text x="880" y="38">signal</text>
+    <line x1="640" y1="56" x2="664" y2="56" stroke="#1e8449" stroke-width="3"/><text x="670" y="60">motor</text>
+    <line x1="770" y1="56" x2="794" y2="56" stroke="#8e44ad" stroke-width="3"/><text x="800" y="60">wired link</text>
+  </g>
+
+  <!-- ===== ESP32 DevKitC-32E ===== -->
+  <rect x="40" y="90" width="220" height="490" rx="8" fill="#e8eef5" stroke="#34495e" stroke-width="2"/>
+  <text x="150" y="330" text-anchor="middle" font-size="16" font-weight="bold" fill="#34495e">ESP32</text>
+  <text x="150" y="350" text-anchor="middle" font-size="13" fill="#34495e">DevKitC-32E</text>
+  <text x="150" y="368" text-anchor="middle" font-size="11" fill="#567">(WROOM-32E)</text>
+  <text x="150" y="560" text-anchor="middle" font-size="11" fill="#567">USB → laptop (power, flash, serial)</text>
+  <g font-size="12" fill="#222" text-anchor="end">
+    <text x="252" y="124">3V3</text>
+    <text x="252" y="164">GND</text>
+    <text x="252" y="204">GPIO34 (ADC1_6)</text>
+    <text x="252" y="264">GPIO25</text>
+    <text x="252" y="294">GPIO26</text>
+    <text x="252" y="324">GPIO27</text>
+    <text x="252" y="384">GND</text>
+    <text x="252" y="414">GPIO35</text>
+    <text x="252" y="484">GPIO17 (TX2)</text>
+    <text x="252" y="514">GPIO16 (RX2)</text>
+    <text x="252" y="544">GND</text>
+  </g>
+
+  <!-- ===== Pot wires (own wires, own GND) ===== -->
+  <g fill="none" stroke-width="2.5">
+    <polyline points="260,120 780,120" stroke="#c0392b"/>
+    <polyline points="260,160 780,160" stroke="#222"/>
+    <polyline points="260,200 780,200" stroke="#2471a3"/>
+  </g>
+  <!-- 100 nF wiper to pot GND -->
+  <g stroke="#222" stroke-width="2" fill="none">
+    <line x1="720" y1="160" x2="720" y2="175"/>
+    <line x1="708" y1="175" x2="732" y2="175"/>
+    <line x1="708" y1="183" x2="732" y2="183"/>
+    <line x1="720" y1="183" x2="720" y2="200"/>
+  </g>
+  <circle cx="720" cy="160" r="3.5" fill="#222"/>
+  <circle cx="720" cy="200" r="3.5" fill="#2471a3"/>
+  <text x="664" y="184" font-size="11" fill="#444">100 nF</text>
+  <text x="300" y="112" font-size="11" fill="#666">pot: its own three wires, its own GND pin (not shared with the motor)</text>
+
+  <!-- ===== Motorised pot ===== -->
+  <rect x="780" y="90" width="180" height="250" rx="8" fill="#f4ecf7" stroke="#6c3483" stroke-width="2"/>
+  <circle cx="900" cy="215" r="34" fill="#fff" stroke="#6c3483" stroke-width="2"/>
+  <line x1="900" y1="215" x2="900" y2="185" stroke="#6c3483" stroke-width="3"/>
+  <text x="900" y="268" text-anchor="middle" font-size="11" fill="#6c3483">use ±50° of the</text>
+  <text x="900" y="282" text-anchor="middle" font-size="11" fill="#6c3483">≈300° travel</text>
+  <text x="870" y="318" text-anchor="middle" font-size="13" font-weight="bold" fill="#6c3483">Alps 16 mm</text>
+  <text x="870" y="333" text-anchor="middle" font-size="11" fill="#6c3483">motorised, 100 kΩ B</text>
+  <g font-size="12" fill="#222">
+    <text x="788" y="124">3 (CW end)</text>
+    <text x="788" y="164">1 (CCW end)</text>
+    <text x="788" y="204">2 wiper</text>
+    <text x="788" y="294">M +</text>
+    <text x="788" y="324">M −</text>
+  </g>
+
+  <!-- ===== DRV8833 ===== -->
+  <rect x="440" y="240" width="180" height="190" rx="8" fill="#eaf5ea" stroke="#1e8449" stroke-width="2"/>
+  <text x="530" y="340" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e8449">DRV8833</text>
+  <text x="530" y="356" text-anchor="middle" font-size="11" fill="#1e8449">Adafruit breakout</text>
+  <text x="530" y="370" text-anchor="middle" font-size="11" fill="#1e8449">channel A only</text>
+  <g font-size="12" fill="#222">
+    <text x="448" y="264">AIN1</text>
+    <text x="448" y="294">AIN2</text>
+    <text x="448" y="324">SLP</text>
+    <text x="448" y="384">GND</text>
+    <text x="448" y="414">FLT</text>
+  </g>
+  <g font-size="12" fill="#222" text-anchor="end">
+    <text x="612" y="264">AOUT1</text>
+    <text x="612" y="294">AOUT2</text>
+    <text x="612" y="364">VM</text>
+    <text x="612" y="394">GND</text>
+  </g>
+
+  <!-- ESP -> DRV -->
+  <g fill="none" stroke-width="2.5">
+    <line x1="260" y1="260" x2="440" y2="260" stroke="#2471a3"/>
+    <line x1="260" y1="290" x2="440" y2="290" stroke="#2471a3"/>
+    <line x1="260" y1="320" x2="440" y2="320" stroke="#2471a3"/>
+    <line x1="260" y1="380" x2="440" y2="380" stroke="#222"/>
+    <line x1="260" y1="410" x2="440" y2="410" stroke="#2471a3"/>
+  </g>
+  <g font-size="11" fill="#666">
+    <text x="300" y="254">PWM 20 kHz</text>
+    <text x="300" y="284">PWM 20 kHz</text>
+    <text x="300" y="314">high = awake</text>
+    <text x="300" y="404">fault in (low = fault)</text>
+  </g>
+  <!-- FLT pull-up 10k to 3V3 (GPIO35 has no internal pull-up) -->
+  <circle cx="400" cy="410" r="3.5" fill="#2471a3"/>
+  <g stroke="#2471a3" stroke-width="2" fill="none">
+    <line x1="400" y1="410" x2="400" y2="418"/>
+    <rect x="394" y="418" width="12" height="26" fill="#fff"/>
+    <line x1="400" y1="444" x2="400" y2="452"/>
+  </g>
+  <text x="412" y="436" font-size="11" fill="#444">10 kΩ</text>
+  <text x="400" y="465" text-anchor="middle" font-size="11" fill="#c0392b">to 3V3</text>
+
+  <!-- DRV -> motor -->
+  <g fill="none" stroke="#1e8449" stroke-width="2.5">
+    <polyline points="620,260 740,260 740,290 780,290"/>
+    <polyline points="620,290 720,290 720,320 780,320"/>
+  </g>
+  <!-- optional 100 nF across motor tabs -->
+  <g stroke="#1e8449" stroke-width="1.5" fill="none" stroke-dasharray="3,2">
+    <line x1="764" y1="290" x2="764" y2="301"/>
+    <line x1="756" y1="301" x2="772" y2="301"/>
+    <line x1="756" y1="308" x2="772" y2="308"/>
+    <line x1="764" y1="308" x2="764" y2="320"/>
+  </g>
+  <text x="712" y="378" font-size="11" fill="#1e8449">optional 100 nF at the motor tabs</text>
+  <text x="712" y="391" font-size="11" fill="#1e8449">only (never to the wiper)</text>
+
+  <!-- DRV -> motor supply -->
+  <g fill="none" stroke-width="2.5">
+    <polyline points="620,360 700,360 700,480 800,480" stroke="#c0392b"/>
+    <polyline points="620,390 670,390 670,530 800,530" stroke="#222"/>
+  </g>
+  <!-- 100 uF electrolytic across VM -->
+  <g stroke="#222" stroke-width="2" fill="none">
+    <line x1="760" y1="480" x2="760" y2="498"/>
+    <line x1="748" y1="498" x2="772" y2="498"/>
+    <path d="M748 508 Q760 502 772 508"/>
+    <line x1="760" y1="506" x2="760" y2="530"/>
+  </g>
+  <circle cx="760" cy="480" r="3.5" fill="#c0392b"/>
+  <circle cx="760" cy="530" r="3.5" fill="#222"/>
+  <text x="742" y="497" font-size="11" fill="#444" text-anchor="end">100 µF +</text>
+
+  <rect x="800" y="455" width="180" height="100" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="2"/>
+  <text x="890" y="490" text-anchor="middle" font-weight="bold" fill="#c0392b">Motor supply</text>
+  <text x="890" y="507" text-anchor="middle" font-size="11" fill="#c0392b">to suit the pot motor</text>
+  <text x="890" y="521" text-anchor="middle" font-size="11" fill="#c0392b">5 V typ. (DRV8833: 2.7–10.8 V)</text>
+  <text x="808" y="484" font-size="12" fill="#222">+</text>
+  <text x="808" y="534" font-size="12" fill="#222">−</text>
+  <text x="890" y="548" text-anchor="middle" font-size="11" fill="#444">− joins ESP32 GND</text>
+
+  <!-- ===== Wired link ===== -->
+  <g fill="none" stroke="#8e44ad" stroke-width="2.5">
+    <line x1="260" y1="480" x2="330" y2="480"/>
+    <line x1="362" y1="480" x2="470" y2="480"/>
+    <line x1="260" y1="510" x2="470" y2="510"/>
+  </g>
+  <line x1="260" y1="540" x2="470" y2="540" stroke="#222" stroke-width="2.5"/>
+  <!-- 220R series on TX -->
+  <rect x="330" y="474" width="32" height="12" fill="#fff" stroke="#8e44ad" stroke-width="2"/>
+  <text x="346" y="470" text-anchor="middle" font-size="11" fill="#444">220 Ω</text>
+
+  <rect x="470" y="462" width="170" height="96" rx="8" fill="#f5eef8" stroke="#8e44ad" stroke-width="2"/>
+  <text x="555" y="455" text-anchor="middle" font-size="12" font-weight="bold" fill="#8e44ad">Wired link (ring)</text>
+  <g font-size="12" fill="#222">
+    <text x="478" y="484">OUT → next node RX</text>
+    <text x="478" y="514">IN ← prev. node TX</text>
+    <text x="478" y="544">GND ↔ all nodes</text>
+  </g>
+
+  <text x="40" y="620" font-size="11" fill="#888">homeostat/node · wiring v1.0 · 26 Nov 2026 · check every pot and motor pin with a meter before power: pin numbers vary between Alps parts</text>
+</svg>

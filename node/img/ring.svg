@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 500" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!-- four pot nodes on a wired UART ring: each TX feeds the next node's RX; one shared GND -->
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8e44ad"/>
+    </marker>
+  </defs>
+  <rect width="720" height="500" fill="#fbfaf7"/>
+  <text x="30" y="36" font-size="20" font-weight="bold" fill="#222">Four nodes, wired ring</text>
+  <text x="30" y="56" fill="#666">UART2 at 115200: TX (GPIO17, through 220 Ω) → next node's RX (GPIO16). One GND wire joins all four.</text>
+
+  <!-- GND bus (behind) -->
+  <rect x="150" y="120" width="420" height="270" fill="none" stroke="#222" stroke-width="2" stroke-dasharray="6,4"/>
+  <text x="360" y="364" text-anchor="middle" font-size="11" fill="#444">dashed: shared GND (all nodes, all supply −)</text>
+
+  <!-- nodes -->
+  <g>
+    <rect x="90" y="90" width="130" height="64" rx="8" fill="#e8eef5" stroke="#34495e" stroke-width="2"/>
+    <text x="155" y="117" text-anchor="middle" font-weight="bold">Node 1 · TL</text>
+    <text x="155" y="136" text-anchor="middle" font-size="11" fill="#567">owns x[0] · USB to laptop</text>
+
+    <rect x="500" y="90" width="130" height="64" rx="8" fill="#e8eef5" stroke="#34495e" stroke-width="2"/>
+    <text x="565" y="117" text-anchor="middle" font-weight="bold">Node 2 · TR</text>
+    <text x="565" y="136" text-anchor="middle" font-size="11" fill="#567">owns x[1]</text>
+
+    <rect x="500" y="356" width="130" height="64" rx="8" fill="#e8eef5" stroke="#34495e" stroke-width="2"/>
+    <text x="565" y="383" text-anchor="middle" font-weight="bold">Node 3 · BR</text>
+    <text x="565" y="402" text-anchor="middle" font-size="11" fill="#567">owns x[2]</text>
+
+    <rect x="90" y="356" width="130" height="64" rx="8" fill="#e8eef5" stroke="#34495e" stroke-width="2"/>
+    <text x="155" y="383" text-anchor="middle" font-weight="bold">Node 4 · BL</text>
+    <text x="155" y="402" text-anchor="middle" font-size="11" fill="#567">owns x[3]</text>
+  </g>
+
+  <!-- ring links -->
+  <g stroke="#8e44ad" stroke-width="3" fill="none" marker-end="url(#arr)">
+    <line x1="222" y1="108" x2="496" y2="108"/>
+    <line x1="600" y1="156" x2="600" y2="352"/>
+    <line x1="498" y1="402" x2="224" y2="402"/>
+    <line x1="120" y1="354" x2="120" y2="158"/>
+  </g>
+  <g font-size="11" fill="#8e44ad">
+    <text x="360" y="100" text-anchor="middle">1 TX → 2 RX</text>
+    <text x="608" y="258">2 TX → 3 RX</text>
+    <text x="360" y="420" text-anchor="middle">3 TX → 4 RX</text>
+    <text x="112" y="258" text-anchor="end">4 TX → 1 RX</text>
+  </g>
+
+  <!-- how a message travels -->
+  <g font-size="12" fill="#333">
+    <text x="360" y="200" text-anchor="middle" font-weight="bold">Each line goes all the way round</text>
+    <text x="360" y="220" text-anchor="middle">a node sends its own x, and passes on every line</text>
+    <text x="360" y="238" text-anchor="middle">it hears that isn't its own. Its own line coming back</text>
+    <text x="360" y="256" text-anchor="middle">is the proof the ring is whole, and is dropped.</text>
+    <text x="360" y="284" text-anchor="middle" fill="#666">≈2 ms a hop · 3 hops · well inside one 60 ms step</text>
+    <text x="360" y="312" text-anchor="middle" fill="#666">no line from a node for 0.5 s → this node simulates</text>
+    <text x="360" y="330" text-anchor="middle" fill="#666">that unit itself until it comes back</text>
+  </g>
+
+  <text x="30" y="470" font-size="11" fill="#888">One node on the bench: leave IN/OUT open (it simulates TR, BR, BL), or jumper its own OUT to IN to test the link.</text>
+  <text x="30" y="488" font-size="11" fill="#888">homeostat/node · ring v1.0 · 26 Nov 2026 · bare UART is good to a metre or two; longer runs → RS-485 or CAN transceivers</text>
+</svg>
