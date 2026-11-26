@@ -87,9 +87,15 @@ The needle uses **100°** of the pot's ≈300°: Ashby's ±45° viable range, pl
 - −45…+45°: the unit's state, as on the sim's dial.
 - Past ±45°: the unit is out of its viable range and its uniselector (S2) fires, as in the sim.
 - ±50°: hard limit. The motor never drives past it; a reading beyond it is clamped.
-- Centred on the pot's mid-travel: roughly counts 1365…2730 of 4095 (≈13.6 counts a degree, about
-  0.1° resolution). Calibrate `POS_LOW` / `POS_HIGH` by turning the knob to marks at ±50°, as with the
-  fader.
+- **Calibrated on node 1** (26 Nov, `node_v1_4`+): knob rested on marks drawn on the faceplate, 2 s
+  each, ±2 counts: **−50° = 1779, 0° = 1519, +50° = 1229.** The halves differ (260 vs 290 counts:
+  the ADC's slight bend plus hand-drawn marks), so degrees are two straight lines meeting at 0 and
+  every mark is exact. About 5.5 counts a degree; noise ±2 counts, under 0.5°. Set live with
+  `lo` / `zero` / `hi` (or `lo N` …), then copy into the sketch.
+- **Speed is the motor's, not ours:** about **28°/s** at full power, matching the datasheet (300° in
+  12 ± 3 s). A full −50° → +50° swing takes ~4.5 s; holds land within ~0.5–0.8° with no overshoot
+  (`node_v1_6`: KP 4, deadband 6 counts). The homeostat on this node will need a needle that moves at
+  this pace (or a unit that runs slower than the browser sim's TL).
 - The middle third of the ESP32's ADC range is its most linear part (it bends near 0 V and above
   ≈2.6 V), so using only 100° helps here too.
 - Worth a physical stop on the faceplate at ±50° (a pin in the knob's path) so a hand can't wind it

@@ -237,7 +237,7 @@ void loop() {
 }
 
 /*
- * FLASH:  powershell -File node\flash.ps1 -Sketch bench\node_v1_2
+ * FLASH:  powershell -File node\flash.ps1 -Sketch bench\node_v1_3
  *   board "ESP32 Dev Module" (esp32:esp32:esp32), DevKitC shows as a CP210x COM port.
  *   If upload stalls at "Connecting...", hold BOOT until it starts writing.
  */
