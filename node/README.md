@@ -11,11 +11,16 @@ together are a homeostat with no laptop at all. The [distributed homeostat](../d
 does the same over ESP-NOW with LEDs for needles; this one starts wired, and with a needle you can
 grab.
 
+**Build log:** [A unit you can hold: the pot node](https://sui001.github.io/homeostat/visualiser/homeostat_pot_node_build.html)
+(what we did, what went wrong, calibration, holds, the needle).
+
 Framing, kept from the fader: the hand outranks the model. A machine that proposes, a person who can
 overrule.
 
-Status: **design, nothing built yet** (26 Nov 2026). Start with one node; it simulates the other three
-until real ones join.
+Status (27 Nov 2026): **node 1 on the bench.** The pot reads cleanly, the motor holds any angle
+within ~1° (`bench/node_v1_6`), calibrated to marks on the faceplate; needle printable
+(`print/needle_v1_0.stl`). Not yet: hand takeover, the unit's equation on the node, the wired ring.
+Start with one node; it simulates the other three until real ones join.
 
 ## Parts (one node)
 

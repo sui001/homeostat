@@ -17,6 +17,8 @@ Built by Sui and Thomas for educational and illustrative purposes - to make Ashb
 
 [TL's needle, a motorised fader](https://sui001.github.io/homeostat/visualiser/homeostat_tl_fader_build.html) - a $4 ESP32, an L293D and the cheapest motorised fader play unit TL of the simulator: it follows TL's needle, and a hand on it becomes the needle. The build, what went wrong on the way, and how well it follows.
 
+[A unit you can hold: the pot node](https://sui001.github.io/homeostat/visualiser/homeostat_pot_node_build.html) - one unit on an ESP32 with a motorised rotary pot for its needle and its hand control; four wired together make a homeostat with no laptop. Day one: from a blank board to a needle that lands on its marks, and the printable needle. [Code and wiring](node/README.md).
+
 [Homeostat on the Kinova arm](homeostat-arm/README.md) - extruding the 4-D path of PT's model as a free-standing strand with a Kinova Gen3, and a motorised fader that plays unit TL: it follows TL's needle, and a hand on it holds TL.
 
 ---

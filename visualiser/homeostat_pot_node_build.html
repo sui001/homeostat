@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>A unit you can hold: the pot node</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: a drawing set. Each figure gets the full sheet width, with notes in a plain column under it. */
+:root {
+  --bg: #eef2f3; --sheet: #fbfcfc; --fg: #17242b; --muted: #55666f; --rule: #c6d1d5;
+  --sig: #0b63a8; --ht: #c02f2a; --lv: #8a5a00; --grid: #18794e; --uni: #6b3fa0; --inf: #b45f06;
+  --l1: #0b63a8; --l2: #c02f2a; --l3: #18794e; --l4: #6b3fa0;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10181c; --sheet: #172127; --fg: #e4ecef; --muted: #9aabb3; --rule: #33434b;
+  --sig: #62b4f0; --ht: #f2837d; --lv: #e0b050; --grid: #5fcf9c; --uni: #bd9bea; --inf: #f4a653;
+  --l1: #62b4f0; --l2: #f2837d; --l3: #5fcf9c; --l4: #bd9bea; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10181c; --sheet: #172127; --fg: #e4ecef; --muted: #9aabb3; --rule: #33434b;
+  --sig: #62b4f0; --ht: #f2837d; --lv: #e0b050; --grid: #5fcf9c; --uni: #bd9bea; --inf: #f4a653;
+  --l1: #62b4f0; --l2: #f2837d; --l3: #5fcf9c; --l4: #bd9bea; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--sans); }
+main { max-width: 1120px; margin: 0 auto; padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 44px; }
+main > * { min-width: 0; }
+h1 { font: 600 2.4rem/1.1 var(--cond); margin: 0 0 10px; text-wrap: balance; }
+h2 { font: 600 1.5rem/1.2 var(--cond); margin: 0 0 8px; text-wrap: balance; }
+h3 { font: 600 1rem/1.3 var(--sans); margin: 22px 0 6px; }
+p { margin: 0 0 12px; max-width: 70ch; }
+.lede { color: var(--muted); font-size: 1.08rem; }
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-top: 22px; }
+.key > div { min-width: 0; }
+.key b { display: block; margin-bottom: 4px; }
+.key p { font-size: .95rem; margin: 0; }
+figure { margin: 14px 0 0; background: var(--sheet); border: 1px solid var(--rule); }
+.scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font: 12.5px/1.5 var(--mono); color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.sw { display: inline-block; width: 18px; border-top: 3px solid; vertical-align: middle; margin-right: 6px; }
+.sw.d { border-top-style: dashed; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; }
+td code, p code, li code { font: .9em var(--mono); }
+.tw { overflow-x: auto; }
+.src { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; align-items: start; }
+.src figure { margin: 0; min-width: 0; }
+.scan { display: block; width: 100%; height: auto; background: #fff; }
+ul { margin: 0 0 12px; padding-left: 20px; max-width: 70ch; }
+li { margin-bottom: 6px; }
+/* drawing styles */
+svg polyline, svg path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.w { stroke: var(--fg); stroke-width: 1.5; } .s { stroke: var(--sig); stroke-width: 1.8; }
+.h { stroke: var(--ht); stroke-width: 1.8; } .lv { stroke: var(--lv); stroke-width: 1.8; }
+.gr { stroke: var(--grid); stroke-width: 1.8; } .u { stroke: var(--uni); stroke-width: 1.8; }
+.inf { stroke: var(--inf); stroke-width: 1.8; stroke-dasharray: 6 4; }
+.mech { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.thin { stroke-width: 1.2; } .thick { stroke-width: 3; } .dash { stroke-dasharray: 7 6; }
+.l1 { stroke: var(--l1); stroke-width: 2.4; } .l2 { stroke: var(--l2); stroke-width: 2.4; }
+.l3 { stroke: var(--l3); stroke-width: 2.4; } .l4 { stroke: var(--l4); stroke-width: 2.4; }
+svg path.arrow { stroke: none; fill: var(--fg); }
+circle.dot.w { fill: var(--fg); } circle.dot.s { fill: var(--sig); } circle.dot.gr { fill: var(--grid); }
+circle.dot { stroke: none; }
+circle.pin { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.5; }
+rect.part, circle.part { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.5; }
+rect.part.u { stroke: var(--sig); }
+rect.former { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 8 5; }
+rect.magnet { fill: var(--fg); } rect.trough { fill: var(--rule); stroke: var(--fg); stroke-width: 1.2; }
+rect.term { fill: var(--bg); stroke: var(--fg); stroke-width: 1.2; }
+rect.column { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+rect.cell { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.3; }
+rect.drive { fill: var(--sheet); stroke-width: 2.4; }
+rect.d1 { stroke: var(--l1); } rect.d2 { stroke: var(--l2); } rect.d3 { stroke: var(--l3); } rect.d4 { stroke: var(--l4); }
+svg text { fill: var(--fg); font-family: var(--mono); font-size: 13px; }
+svg .ts { font-size: 12px; fill: var(--muted); } svg .tx { font-size: 10px; fill: var(--muted); }
+svg .tb { font-family: var(--sans); font-weight: 600; font-size: 14px; }
+svg .tm { font-size: 12px; font-weight: 500; }
+svg .th { fill: var(--ht); font-weight: 500; } svg .tl { fill: var(--lv); font-weight: 500; } svg .ti { font-size: 12px; fill: var(--inf); }
+
+rect.chip { fill: var(--bg); stroke: var(--fg); stroke-width: 1.6; }
+.thick2 { stroke-width: 2.4; }
+.arm { stroke: var(--fg); stroke-width: 7; }
+rect.coilr { fill: var(--sheet); stroke: var(--uni); stroke-width: 2.4; }
+rect.flag { fill: var(--sheet); stroke: var(--fg); stroke-width: 1.4; }
+.grid0 { stroke: var(--rule); stroke-width: 1; }
+nav a, p a, li a, td a { color: var(--sig); }
+.back { font-size: .95rem; }
+.photos { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; align-items: start; margin-top: 14px; }
+.photos .stack { display: grid; gap: 20px; }
+@media (max-width: 760px) { .photos { grid-template-columns: 1fr; } }
+.photos figure, .src figure { margin: 0; min-width: 0; }
+figure img { display: block; width: 100%; height: auto; }
+.steps { display: grid; gap: 14px; margin: 18px 0 0; padding: 0; list-style: none; counter-reset: s; max-width: 74ch; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 8px; margin: 0; }
+.steps li::before { content: counter(s); font: 600 1rem/1.5 var(--cond); color: var(--sig); }
+
+body { margin: 0 } img { max-width: 100% }</style>
+<body>
+<main>
+<header>
+  <p class="back"><a href="homeostat_tl_fader_build.html">Back to the TL fader</a> · <a href="https://github.com/sui001/homeostat/tree/main/node">node/ on GitHub</a></p>
+  <h1>A unit you can hold: the pot node</h1>
+  <p class="lede">The next step on from the TL fader: one unit of the homeostat built to run on its own, with a motorised rotary pot as its needle and its hand control. An ESP32 will run the unit's equation itself, so four of these wired together are a homeostat with no laptop. Built on 26 November 2026 from an ESP32-DevKitC-32E, an Adafruit DRV8833 and an Alps 16 mm motorised pot. This page records the first day: one node, from blank board to a needle that goes where it is told and lands on the marks.</p>
+  <div class="key">
+    <div><b>It points where it is told</b><p>Asked for 0°, ±25° or ±50°, it lands within about 0.5–0.8° with no overshoot. A full swing from −50° to +50° takes about 4.5 s.</p></div>
+    <div><b>Speed is the motor's, not ours</b><p>About 28°/s at full power, which is the datasheet's 300° in 12 ± 3 s. The unit's model will have to live at that pace, or let the needle lag on fast swings.</p></div>
+    <div><b>The pinout from the web was wrong</b><p>A generic pinout for the pot put the wiper on pin 3; ours is on pin 4, and its "ground end" sits behind another 88 k. The meter found it, after the reading had said 4095, then 1967, then 0.</p></div>
+  </div>
+</header>
+
+<section>
+  <h2>What we did</h2>
+  <ol class="steps">
+    <li><span><b>Wrote the plan first.</b> A <a href="https://github.com/sui001/homeostat/tree/main/node">README with a wiring diagram</a>: the pot on its own three wires and its own ground (the fader's lesson), the DRV8833 at 20 kHz so it should be silent, and four nodes on a wired ring: each node's TX to the next one's RX, one shared ground, no transceivers. The needle uses 100° of the pot's 300°: Ashby's ±45° and 5° of margin each side.</span></li>
+    <li><span><b>The board wouldn't take its first upload.</b> It went into download mode and talked to the laptop, but never heard back (<code>serial TX path seems to be down</code>). On USB alone, out of the breadboard, it flashed first time: something in the breadboard was sitting on the RX pin. On the DevKitC, RX and TX are only a few pins from 16 and 17, which the wired link uses.</span></li>
+    <li><span><b>A flat 4095.</b> The pot read full scale whatever the knob did. The meter said pins 2 and 3 are the steady pair and 2 ↔ 4 sweeps, so the wiper is pin 4, not pin 3. The pot had been wired with 3V3 on its wiper, which at one end of its travel would have shorted 3V3 to ground.</span></li>
+    <li><span><b>The motor was on the board's 5 V.</b> It crawled, and wouldn't start below about half power. The part is an RK16812MG0AF, whose datasheet gives a 4.5 V motor (4–6 V) at 300° in 12 s. On its own 5 V supply it doubled in speed.</span></li>
+    <li><span><b>A reading that stopped at 1967.</b> Turned by hand or by motor, it never went below 1967 one way: about 1.7 V where it should have been 0. Metering gave 174 k across pins 2 and 3 and 88 k from 2 to the wiper at the end stop. The track itself is about 86 k, with another 88 k in front of it on pin 2. Our meter shows an open circuit as "0", which sent us hunting on pin 1 for a while.</span></li>
+    <li><span><b>Swapped the ends.</b> With 3V3 on pin 2 and ground on pin 3, the wiper runs from 0 V to 1.65 V over the full turn: the ESP32 ADC's straightest stretch, and no clipping. Quiet: ±3 counts standing still.</span></li>
+    <li><span><b>A hum, and nothing moving.</b> The firmware's motor direction was backwards after the swap, and it pushed the knob into its end stop for half a minute. That's the hum: the motor stalled against the stop, within the datasheet's end-slip current. Turned the other way, from the middle, it moved properly.</span></li>
+    <li><span><b>The wiper let go under a hand.</b> Turning the knob by hand gave spikes and four seconds of solid 4095: the pot's pins shifting in the breadboard. Firmed up, and the readings stayed clean.</span></li>
+    <li><span><b>Calibrated to marks on the faceplate.</b> One mark at a time, knob resting, two seconds each: −50° = 1779, 0° = 1519, +50° = 1229. The two halves differ by about 10%, so degrees are two straight lines meeting at 0 and every mark is exact (Fig. 2).</span></li>
+    <li><span><b>Tuned the hold.</b> The real scale (about 5.5 counts a degree) is coarser than the first guess, so the same angle gave the motor less push and most moves crept along at the floor. A stronger push and a tighter deadband (about 1°): holds now land within a degree, with no overshoot.</span></li>
+    <li><span><b>Drew a needle.</b> A sketch on paper became a printable pointer (Fig. 3): a push-fit hub for the 6 mm D shaft, a long arm, and a raised tab 90 mm out that is both the pointer and the place to take hold.</span></li>
+  </ol>
+</section>
+
+<section>
+  <h2>What went wrong, and what it looked like</h2>
+  <p>Like the fader, almost all of it looked like software and was wiring.</p>
+  <div class="tw"><table>
+    <tr><th>What it did</th><th>Cause</th><th>Fix</th></tr>
+    <tr><td>Upload fails: <code>serial TX path seems to be down</code></td><td>Something in the breadboard on the RX (GPIO3) row</td><td>Flash on USB alone; keep the RX and TX rows empty</td></tr>
+    <tr><td>Pot reads a flat 4095</td><td>3V3 on the wiper (pin 4), ADC on an end (pin 3), from a generic pinout</td><td>Meter it: the pin whose reading changes as you turn is the wiper</td></tr>
+    <tr><td>Motor crawls, won't start below ~50%</td><td>Motor on the DevKitC's 5 V pin, after its diode and the USB port</td><td>Its own 5 V supply on VM, grounds joined</td></tr>
+    <tr><td>Reading never goes below 1967 (1.7 V)</td><td>Pin 2 reaches the track only through another 88 k</td><td>3V3 on pin 2, GND on pin 3: wiper runs 0–1.65 V</td></tr>
+    <tr><td>Pot reads a flat 0 after a rewire</td><td>Pot lost its 3V3 wire</td><td>Reseated</td></tr>
+    <tr><td>Hums, doesn't move</td><td>Motor direction backwards: pushing into the end stop</td><td>Direction measured and fixed in firmware v1.3</td></tr>
+    <tr><td>Spikes and seconds of 4095 when the knob is handled</td><td>Pot pins moving in the breadboard</td><td>Firmer connection; the firmware will still need a jump filter</td></tr>
+    <tr><td>A meter "0" where there should be a resistance</td><td>This meter shows open circuit as 0</td><td>Check what it shows with the probes apart</td></tr>
+    <tr><td>Holds slow and stopping 2–3° short</td><td>Gain and deadband set for a guessed scale</td><td>KP 4, deadband 6 counts (v1.6)</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Fig. 1: The wiring</h2>
+  <p>One node. The pot has its own three wires and its own ground pin; the motor's 5 V touches only the driver's VM. The wired link is drawn but not yet used: one node on its own simulates the other three units.</p>
+  <figure><div class="scroll"><img src="../node/img/node_wiring.svg" width="1000" height="640" style="min-width:760px" alt="ESP32-DevKitC-32E wired to the pot (3V3, GND and GPIO34 for the wiper, 100 nF from wiper to ground), to the DRV8833 (GPIO25 and 26 to AIN1 and AIN2, GPIO27 to SLP, GPIO35 to FLT with a 10 k pull-up), the DRV8833's outputs to the pot motor and its VM to a separate motor supply with a capacitor across it, and GPIO17 and 16 through a 220 Ω resistor to the wired link."></div></figure>
+  <div class="tw" style="margin-top:14px"><table>
+    <tr><th>From</th><th>To</th><th>Note</th></tr>
+    <tr><td>Pot 2 / 3 / 4</td><td>3V3 / GND / GPIO34</td><td>Pin 4 is the wiper; 2 reaches the track through ~88 k. 0.1 µF from wiper to GND</td></tr>
+    <tr><td>DRV8833 AIN1 / AIN2</td><td>GPIO25 / GPIO26</td><td>Both PWM at 20 kHz, slow decay</td></tr>
+    <tr><td>DRV8833 SLP / FLT</td><td>GPIO27 / GPIO35</td><td>FLT has a 10 k pull-up to 3V3</td></tr>
+    <tr><td>DRV8833 AOUT1 / AOUT2</td><td>Pot motor pins</td><td>The two pins at the back</td></tr>
+    <tr><td>DRV8833 VM / GND</td><td>5 V supply + / −</td><td>10 µF + 0.1 µF across them; − joins the ESP32's GND</td></tr>
+    <tr><td>GPIO17 (via 220 Ω) / GPIO16</td><td>Next node's RX / previous node's TX</td><td>Not used yet</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Fig. 2: Calibration and holds</h2>
+  <h3>The marks</h3>
+  <div class="tw"><table>
+    <tr><th>Mark</th><th>Reading</th><th>To the next mark</th></tr>
+    <tr><td>−50° (counter-clockwise)</td><td>1779</td><td></td></tr>
+    <tr><td>0°</td><td>1519</td><td>260 counts, 5.2 a degree</td></tr>
+    <tr><td>+50° (clockwise)</td><td>1229</td><td>290 counts, 5.8 a degree</td></tr>
+  </table></div>
+  <p style="margin-top:10px">Each read with the knob resting on its mark for 2 s: steady to ±2 counts, under half a degree.</p>
+  <h3>Holds (firmware v1.6)</h3>
+  <div class="tw"><table>
+    <tr><th>Asked for</th><th>From</th><th>Landed</th><th>Within 1.5° after</th></tr>
+    <tr><td>0°</td><td>7.4°</td><td>0.5°</td><td>0.6 s</td></tr>
+    <tr><td>−50°</td><td>0.7°</td><td>−49.2°</td><td>3.8 s</td></tr>
+    <tr><td>+50°</td><td>−49.6°</td><td>+50.2°</td><td>4.5 s</td></tr>
+    <tr><td>0°</td><td>50.0°</td><td>0.5°</td><td>3.0 s</td></tr>
+    <tr><td>−25°</td><td>0.2°</td><td>−24.2°</td><td>2.0 s</td></tr>
+    <tr><td>+25°</td><td>−24.4°</td><td>+24.7°</td><td>3.1 s</td></tr>
+  </table></div>
+  <p style="margin-top:10px">No overshoot on any move. Settled, it holds within about 0.5–0.9°. Full power is 26–30°/s either way.</p>
+</section>
+
+<section>
+  <h2>Fig. 3: The needle</h2>
+  <p>Drawn from a sketch on paper. A push-fit hub on the 6 mm D shaft (bore 6.15 across the round, 4.60 across the flat), a 6 × 5 mm arm, and a 10 mm tab with a V point exactly 90 mm from the shaft: the pointer, and the place a hand takes hold. It prints flat with no supports, about 5.5 g in PLA. The build script checks the part before it writes the STL: one closed body that survives being saved, the tip at 90.000 mm, the bore sizes measured from the saved file.</p>
+  <figure><img class="scan" src="../node/print/needle_v1_0_iso.svg" alt="Line drawing of the needle: a round hub with a D-shaped hole on the left, a long thin arm, and a taller block at the far end with a pointed tip." style="max-width:720px;margin:0 auto"></figure>
+</section>
+
+<section>
+  <h2>Firmware</h2>
+  <p>All in <a href="https://github.com/sui001/homeostat/tree/main/node">node/</a> in this repository, for an ESP32-DevKitC-32E (esp32 core 3.x, board "ESP32 Dev Module").</p>
+  <div class="tw"><table>
+    <tr><th>File</th><th>What it does</th></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_0</code> … <code>v1_6</code></a></td><td>Bring-up. Reads the pot, jogs and holds the motor on command, a speed test, live calibration (<code>lo</code> / <code>zero</code> / <code>hi</code>) and tuning (<code>kp</code> <code>min</code> <code>max</code> <code>db</code>). Each version kept</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/blob/main/node/flash.ps1"><code>flash.ps1</code></a></td><td>Writes the version from git, compiles, uploads, shows the boot line</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/print"><code>print/needle_v1_0.py</code></a></td><td>Builds the needle STL and checks it; the STL's header carries the git version</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Parts</h2>
+  <div class="tw"><table>
+    <tr><th>Part</th><th>Note</th></tr>
+    <tr><td>ESP32-DevKitC-32E</td><td>Classic ESP32, CP2102 USB</td></tr>
+    <tr><td>Alps RK16812MG0AF</td><td>16 mm motorised pot, dual gang, 4.5 V motor, 6 mm D shaft</td></tr>
+    <tr><td>Adafruit DRV8833</td><td>Two H-bridges, one used</td></tr>
+    <tr><td>5 V supply, 10 µF, 0.1 µF ×2, 10 k, 220 Ω, jumper wire</td><td>On hand</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Next</h2>
+  <ul>
+    <li>Print the needle, check the fit, and re-read the three marks with it on.</li>
+    <li>The hand: push the knob and the motor lets go, the needle goes where the hand puts it, as the fader does. Plus a jump filter for the wiper.</li>
+    <li>The unit running on the node: its own equation every 60 ms, three neighbours simulated, the needle following it, and the uniselector firing past ±45°.</li>
+    <li>A second node and the wired ring.</li>
+  </ul>
+  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>.</p>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,161 @@
+{
+  "subject": "needle v1.0 423d084 \u00b7 26 Nov 16:52 +1 uncommitted",
+  "passed": true,
+  "claims": [
+    {
+      "claim": "parameters",
+      "kind": "note",
+      "passed": null,
+      "detail": "",
+      "facts": {
+        "tip": 90.0,
+        "hub_d": 14.0,
+        "hub_h": 10.0,
+        "arm_w": 6.0,
+        "arm_h": 5.0,
+        "tab_len": 14.0,
+        "tab_w": 9.0,
+        "tab_h": 10.0,
+        "point_len": 5.0,
+        "bore_d": 6.15,
+        "bore_flat": 4.6,
+        "flat_angle": 0.0,
+        "lead_in": 0.4,
+        "min_wall": 2.5,
+        "fit_tol": 0.06,
+        "plate": "220x220x250"
+      }
+    },
+    {
+      "claim": "needle is a closed volume",
+      "kind": "require",
+      "passed": true,
+      "detail": "watertight=True winding=True vol=+4.4 cm3 open edges=0",
+      "facts": {
+        "watertight": true,
+        "winding_consistent": true,
+        "volume_cm3": 4.409,
+        "open_edges": 0
+      }
+    },
+    {
+      "claim": "needle is one connected body",
+      "kind": "require",
+      "passed": true,
+      "detail": "1 bodies over 0.1 cm3, volumes [4.4] cm3",
+      "facts": {
+        "body_count": 1,
+        "body_volumes_cm3": [
+          4.4
+        ]
+      }
+    },
+    {
+      "claim": "needle survives being written",
+      "kind": "require",
+      "passed": true,
+      "detail": "written and read back: watertight=True bodies=1 volume moved 0.000 cm3",
+      "facts": {
+        "watertight": true,
+        "body_count": 1,
+        "volume_delta_cm3": 0.0
+      }
+    },
+    {
+      "claim": "needle fits the plate",
+      "kind": "require",
+      "passed": true,
+      "detail": "97 x 14 x 10 in 220x220x250, flat",
+      "facts": {
+        "extents": [
+          97.0,
+          14.0,
+          10.0
+        ],
+        "plate": "220x220x250",
+        "orientation": "flat"
+      }
+    },
+    {
+      "claim": "tip is 90.0 mm from the shaft axis",
+      "kind": "require",
+      "passed": true,
+      "detail": "furthest point at x = 90.000",
+      "facts": {
+        "tip_x": 90.0
+      }
+    },
+    {
+      "claim": "sits flat on the bed",
+      "kind": "require",
+      "passed": true,
+      "detail": "lowest point z = 0.0000",
+      "facts": {
+        "min_z": 0.0
+      }
+    },
+    {
+      "claim": "tab is 10.0 mm high",
+      "kind": "require",
+      "passed": true,
+      "detail": "top at z = 10.000",
+      "facts": {
+        "top_z": 10.0
+      }
+    },
+    {
+      "claim": "footprint on the bed",
+      "kind": "note",
+      "passed": null,
+      "detail": "636 mm2 touching the plate",
+      "facts": {
+        "footprint_mm2": 635.9
+      }
+    },
+    {
+      "claim": "bore is 4.60 across the flat",
+      "kind": "require",
+      "passed": true,
+      "detail": "measured 4.600 mm",
+      "facts": {
+        "across_flat": 4.6
+      }
+    },
+    {
+      "claim": "bore is 6.15 across the round",
+      "kind": "require",
+      "passed": true,
+      "detail": "measured 6.150 mm",
+      "facts": {
+        "across_round": 6.15
+      }
+    },
+    {
+      "claim": "flat faces 0 deg",
+      "kind": "require",
+      "passed": true,
+      "detail": "flat 1.525 mm from the axis",
+      "facts": {
+        "flat_from_axis": 1.525
+      }
+    },
+    {
+      "claim": "hub wall at least 2.5 mm",
+      "kind": "require",
+      "passed": true,
+      "detail": "thinnest 3.92 mm",
+      "facts": {
+        "wall_mm": 3.92
+      }
+    },
+    {
+      "claim": "weight",
+      "kind": "note",
+      "passed": null,
+      "detail": "4.4 cm3, ~5.5 g in PLA",
+      "facts": {
+        "volume_cm3": 4.41
+      }
+    }
+  ]
+}
