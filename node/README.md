@@ -25,7 +25,7 @@ until real ones join.
 | Alps 16 mm motorised pot, 100 kΩ linear (RK16812MG-class) | 3 pot pins + 2 motor tabs; motor usually 5 V |
 | Adafruit DRV8833 breakout | two H-bridges, only channel A used; 2.7–10.8 V motor supply, silent at 20 kHz |
 | 100 nF ceramic | wiper to pot GND (the 100 kΩ track is a high-impedance source for the ADC) |
-| 100 µF electrolytic | across VM / GND at the driver |
+| 10 µF electrolytic + 0.1 µF ceramic | across VM / GND at the driver (stripe to GND) |
 | 10 kΩ | FLT pull-up (GPIO35 has no internal pull-up) |
 | 220 Ω | in series with TX on the wired link |
 | 100 nF ceramic (optional) | across the motor tabs only, if the motor makes the reading noisy |
@@ -37,14 +37,14 @@ until real ones join.
 
 | From | To | Note |
 |---|---|---|
-| Pot 3 (CW end) / 1 (CCW end) / 2 (wiper) | 3V3 / GND / **GPIO34** | pot gets **its own three wires** and its own GND pin |
+| Pot **pin 2** / **pin 3** / **pin 4 (wiper)** | **3V3** / **GND** / **GPIO34** | pot gets **its own three wires** and its own GND pin. Wiper runs 0 → ~1.65 V (see below) |
 | 100 nF | wiper ↔ pot GND | right at the pot |
 | DRV8833 AIN1 / AIN2 | GPIO25 / GPIO26 | both PWM at 20 kHz |
 | DRV8833 SLP | GPIO27 | high = awake; firmware sleeps the driver on a fault |
 | DRV8833 FLT | GPIO35 + 10 kΩ to 3V3 | goes low on over-current / over-temperature |
 | DRV8833 GND (logic side) | ESP32 GND | |
 | DRV8833 AOUT1 / AOUT2 | pot motor + / − | nothing else on these two |
-| DRV8833 VM / GND | motor supply + / − | 100 µF across them; supply − joins ESP32 GND |
+| DRV8833 VM / GND | motor supply + / − | 10 µF + 0.1 µF across them; supply − joins ESP32 GND |
 | GPIO17 (TX2) → 220 Ω | next node's RX | wired link OUT |
 | GPIO16 (RX2) | previous node's TX | wired link IN |
 | GND | every node's GND | one common ground for the link |
@@ -58,8 +58,18 @@ that ESP-NOW can be added later without moving it.
 
 **Lessons carried over from the fader** (all of these looked like software and weren't):
 
-- Meter every pin before power. Alps numbering differs between parts; find the two track ends (full
-  100 kΩ between them) and the wiper, and which tab is motor +.
+- Meter every pin before power. Ours (RK16812MG0AF) has a row of 8 on the body (dual gang) and 2
+  motor pins at the back. A generic pinout found online (1 dummy, 2 CCW, 3 wiper, 4 CW) was wrong.
+  Metered on ours: **pin 4 is the wiper; pin 3 is the CW end of an ~86 k track; pin 2 reaches the
+  CCW end only through ~88 k more** (2 ↔ 3 = 174 k, 2 ↔ 4 = 88 k at hard CCW). Pin 1 is open (our
+  meter shows open as "0", which misled us once). 5–8 unused.
+- So: **3V3 on pin 2, GND on pin 3.** The wiper then runs 0 V (hard CW) to ~1.65 V (hard CCW), raw
+  0 → ~1925, in the ADC's most linear range: ~6.4 counts a degree, ±3 counts of noise (~0.5°).
+  The other way round (3V3 on 3, GND on 2) reads only 1.67 → 3.3 V, half of it clipped at 4095.
+- A meter "0" that should be a resistance: check what the meter shows with the probes apart.
+- The wiper cap is the small 0.1 µF ceramic. A 10 µF there makes the reading lag the knob.
+- With the board in a breadboard, check nothing sits in the RX/TX (GPIO3/1) rows: it stopped uploads
+  ("serial TX path seems to be down") until the board was flashed on USB alone.
 - The pot's ground must not carry motor current. Its own wire to its own ESP32 GND pin.
 - No capacitor between a motor output and the wiper.
 - Motor on its own supply, never the ESP32's USB 5 V (brownout resets mid-move).

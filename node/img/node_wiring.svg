@@ -55,14 +55,14 @@
   <rect x="780" y="90" width="180" height="250" rx="8" fill="#f4ecf7" stroke="#6c3483" stroke-width="2"/>
   <circle cx="900" cy="215" r="34" fill="#fff" stroke="#6c3483" stroke-width="2"/>
   <line x1="900" y1="215" x2="900" y2="185" stroke="#6c3483" stroke-width="3"/>
-  <text x="900" y="268" text-anchor="middle" font-size="11" fill="#6c3483">use ±50° of the</text>
-  <text x="900" y="282" text-anchor="middle" font-size="11" fill="#6c3483">≈300° travel</text>
+  <text x="900" y="268" text-anchor="middle" font-size="11" fill="#6c3483">pins 1, 5–8 unused</text>
+  <text x="900" y="282" text-anchor="middle" font-size="11" fill="#6c3483">±50° of ≈300° travel</text>
   <text x="870" y="318" text-anchor="middle" font-size="13" font-weight="bold" fill="#6c3483">Alps 16 mm</text>
   <text x="870" y="333" text-anchor="middle" font-size="11" fill="#6c3483">motorised, 100 kΩ B</text>
   <g font-size="12" fill="#222">
-    <text x="788" y="124">3 (CW end)</text>
-    <text x="788" y="164">1 (CCW end)</text>
-    <text x="788" y="204">2 wiper</text>
+    <text x="788" y="124">pin 2 (via 88k)</text>
+    <text x="788" y="164">pin 3 (CW end)</text>
+    <text x="788" y="204">pin 4 wiper</text>
     <text x="788" y="294">M +</text>
     <text x="788" y="324">M −</text>
   </g>
@@ -139,7 +139,7 @@
   </g>
   <circle cx="760" cy="480" r="3.5" fill="#c0392b"/>
   <circle cx="760" cy="530" r="3.5" fill="#222"/>
-  <text x="742" y="497" font-size="11" fill="#444" text-anchor="end">100 µF +</text>
+  <text x="742" y="497" font-size="11" fill="#444" text-anchor="end">10 µF +</text>
 
   <rect x="800" y="455" width="180" height="100" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="2"/>
   <text x="890" y="490" text-anchor="middle" font-weight="bold" fill="#c0392b">Motor supply</text>
@@ -168,5 +168,5 @@
     <text x="478" y="544">GND ↔ all nodes</text>
   </g>
 
-  <text x="40" y="620" font-size="11" fill="#888">homeostat/node · wiring v1.0 · 26 Nov 2026 · check every pot and motor pin with a meter before power: pin numbers vary between Alps parts</text>
+  <text x="40" y="620" font-size="11" fill="#888">homeostat/node · wiring v1.0 · 26 Nov 2026 · check every pot and motor pin with a meter before power: pot pins counted 1–8 along the row, as metered on ours</text>
 </svg>
