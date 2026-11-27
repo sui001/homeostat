@@ -225,7 +225,7 @@ body { margin: 0 } img { max-width: 100% }</style>
   <p>Zero was set by eye at 1391, and the ends from the others' spacing (1652 and 1099). It is the slowest motor so far: it starts at about 20 % duty but makes only 9°/s at 50 %, against 14 for node 1, and it is stiff from −36° to −50°. Speed tests run from ±45° read one direction four times slower than the other; run again from ±25° they agree, so the difference is the stiff end, not the direction. Its fit is 200 / 6.0, and its minimum push 600, after three false hand grabs on the stiff stretch at 500. Linked through the sim page, keeping the clock on its own: the needle within 0.46° of its unit on average, 1.5° at most, no false grabs, and it reorganised on its own node.</p>
   <div class="photos" style="grid-template-columns:1fr 1fr">
     <figure><img src="img/node/br_layout.jpg" width="1200" height="1600" loading="lazy" alt="A 70 by 90 mm perf board with the parts laid out before soldering: the ESP32-DevKitC-32E down the left, the Alps motorised pot standing at the top right, and the blue DRV8833 breakout below it."><figcaption>Node 3 laid out on a 70 × 90 mm perf board before soldering: ESP32 on the left, the Alps pot top right, the DRV8833 below it.</figcaption></figure>
-    <figure><img src="img/node/br_wired.jpg" width="1200" height="1600" loading="lazy" alt="The same board soldered: the ESP32 on USB with its red LED lit, the DRV8833 with the motor supply in its green terminal, the capacitor and resistor beside it, the pot's motor and track leads on header pins at the right, and a yellow printed arm on the pot's shaft."><figcaption>Soldered and running as BR: motor supply in the green terminal, the pot's motor and track on headers at the right, a yellow printed arm on the shaft.</figcaption></figure>
+    <figure><img src="img/node/br_wired.jpg" width="1200" height="1600" loading="lazy" alt="The same board soldered: the ESP32 on USB with its red LED lit, the DRV8833 with the motor supply in its green terminal, the capacitor and resistor beside it, the pot's motor and track leads on header pins at the right, and a yellow printed arm on the pot's shaft."><figcaption>Soldered and running as BR: motor supply in the green terminal, the pot's motor and track on headers at the right, the printed needle on the shaft (to be changed).</figcaption></figure>
   </div>
   <p>Node 1 meanwhile stopped on a wiper fault, reading +56°, past its +50 end; it is unplugged and its wiper is the first thing to check.</p>
 </section>
@@ -277,7 +277,7 @@ body { margin: 0 } img { max-width: 100% }</style>
 <section>
   <h2>Next</h2>
   <ul>
-    <li>Print the needle, check the fit, and re-read the three marks with it on.</li>
+    <li>The needle is printed (the yellow arm on node 3) but needs changing: redesign it, then re-read the three marks with it on.</li>
     <li>Node 1's wiper, then node 4 as BL, and the wired ring.</li>
     <li>A hub: another ESP32 serving the sim page over WiFi and showing every node's firmware version, so the laptop can go.</li>
   </ul>
