@@ -29,9 +29,11 @@ every node: `id N` sets the unit, and each node keeps its unit, calibration and 
 flash). With both on USB, the sim page links every node it hears: the lowest unit keeps the clock,
 the others follow it, and the page runs the units with no node. Not yet: the wired ring.
 
-Setting up a new node: flash `bench/node_v1_11`, then over serial `id N` (0 TL, 1 TR, 2 BR, 3 BL),
-`lo` / `zero` / `hi` at its three marks, and `min N` if the pot is stiff (node 2 needs 650). `cal`
-shows what it has saved.
+Setting up a new node: flash `bench/node_v1_12`, then over serial `id N` (0 TL, 1 TR, 2 BR, 3 BL),
+`lo` / `zero` / `hi` at its three marks, and `min N` if the pot is stiff (node 2 needs 650). Then
+fit its push: `u 20` ... `u 50` print deg/s at each duty; `ff0` is the duty where it starts moving
+(x10.23 for counts) and `kv` the duty per count/s above that (node 1: 280 / 2.8, node 2: 190 / 4.1).
+`cal` shows what it has saved.
 Start with one node; it simulates the other three until real ones join.
 
 ## Parts (one node)

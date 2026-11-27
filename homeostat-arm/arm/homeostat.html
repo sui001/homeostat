@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* Layout: lab bench. Four black unit boxes (2x2, as wired) on the left, the 4-D view on the right,
-   timer and export strip underneath. One visual world (paper + black instrument boxes), single theme. */
+   timer strip underneath. One visual world (paper + black instrument boxes), single theme. */
 :root {
   --paper: #f1efe9;
   --panel: #fbfaf6;
@@ -77,7 +77,6 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
 .stat b { display: block; font: 500 18px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
 .stat span { font-size: 11px; color: var(--muted); }
 .note { font-size: 12px; color: var(--muted); margin: 0; max-width: 70ch; }
-#status { font-size: 12px; color: var(--accent); min-height: 1.2em; }
 @media (prefers-reduced-motion: reduce) { #plot { scroll-behavior: auto; } }
 </style>
 </head>
@@ -145,28 +144,6 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
         <div class="stat"><b id="stepsOut">0</b><span>uniselector steps</span></div>
       </div>
       <pre id="log"></pre>
-    </div>
-
-    <div class="card">
-      <h2>Export for arm and extruder</h2>
-      <div class="stats">
-        <div class="stat"><b id="ptsOut">0</b><span>path points</span></div>
-        <div class="stat"><b id="runsOut">0</b><span>colour runs (pens)</span></div>
-        <div class="stat"><b id="lenOut">0</b><span>2-D length, mm</span></div>
-      </div>
-      <div class="row">
-        <label for="mm">Tesseract edge (±45°) =</label><input type="number" id="mm" value="120" min="10" step="10"><span class="num">mm</span>
-      </div>
-      <div class="row">
-        <button id="exSvg">Arm drawing (.svg)</button>
-        <button id="exXyz">3-D path (.csv)</button>
-        <button id="exRaw">4-D data (.csv)</button>
-      </div>
-      <div class="row">
-        <label class="check"><input type="checkbox" id="withCube" checked> Include tesseract in drawing</label>
-      </div>
-      <div id="status" role="status"></div>
-      <p class="note">Exports use the view as it is now; untick 4-D spin first to hold an angle. The SVG is the 2-D projection on screen, one polyline per colour (one pen each). The 3-D path is the 4-D perspective step only, before the 3-D turn: x, y, z in mm, ready to sweep a tube along. Both skip samples that moved under 0.25°, so the settled tail doesn't pile up; the 4-D data keeps every sample.</p>
     </div>
   </section>
 </main>
@@ -443,80 +420,8 @@ function tick(now) {
   $("speedOut").textContent = nodeLink.on && nodeLink.speed != null ? "×" + nodeLink.speed + " (set on the nodes)" : "×" + SPEEDS[$("speed").value];
   $("tOut").textContent = model.t.toFixed(1); $("pulsesOut").textContent = model.pulses; $("stepsOut").textContent = model.steps;
   $("log").textContent = model.events.slice(-6).join("\n");
-  if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) updateExportStats();
   requestAnimationFrame(tick);
 }
-
-/* ---------------- Exports ---------------- */
-const mmPerDeg = () => (+$("mm").value || 120) / (2 * LIMIT);
-function movingHist() {                    // drop samples that moved under 0.25° in 4-D (the settled tail piles up otherwise)
-  const h = model.hist, kept = h.length ? [h[0]] : [];
-  for (const p of h) { const q = kept[kept.length - 1]; if (p[4] !== q[4] || Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2], p[3] - q[3]) > 0.25) kept.push(p); }
-  if (h.length > 1 && kept[kept.length - 1] !== h[h.length - 1]) kept.push(h[h.length - 1]);
-  return kept;
-}
-function colourRuns() {                    // split the path wherever the colour (pen) changes
-  const runs = []; let cur = null;
-  for (const h of movingHist()) {
-    if (!cur || cur.col !== h[4]) { const start = cur ? [cur.pts[cur.pts.length - 1]] : []; cur = { col: h[4], pts: start }; runs.push(cur); }
-    cur.pts.push(h);
-  }
-  return runs;
-}
-function updateExportStats() {
-  const k = mmPerDeg(); let len = 0, prev = null;
-  const mh = movingHist();
-  for (const h of mh) { const p = to2(h); if (prev) len += Math.hypot(p[0] - prev[0], p[1] - prev[1]); prev = p; }
-  $("ptsOut").textContent = mh.length; $("runsOut").textContent = colourRuns().length; $("lenOut").textContent = Math.round(len * k);
-}
-function buildSvg() {
-  const k = mmPerDeg(), half = 70 * k, f = v => (v * k).toFixed(2);
-  const lines = [];
-  lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${(2 * half).toFixed(1)}mm" height="${(2 * half).toFixed(1)}mm" viewBox="${(-half).toFixed(2)} ${(-half).toFixed(2)} ${(2 * half).toFixed(2)} ${(2 * half).toFixed(2)}">`);
-  lines.push(`<!-- Homeostat 4-D path, seed ${model.cfg.seed}, t = ${model.t.toFixed(2)} s; view yaw ${view.yaw.toFixed(4)} pitch ${view.pitch.toFixed(4)} xw ${view.xw.toFixed(4)} yw ${view.yw.toFixed(4)}; ${f(1)} mm per degree; y up is drawn as -y -->`);
-  if ($("withCube").checked) {
-    lines.push(`<g id="tesseract" fill="none" stroke="#e08b7d" stroke-width="0.3">`);
-    for (const [a, b] of EDGES) { const p = to2(a), q = to2(b); lines.push(`<line x1="${f(p[0])}" y1="${f(-p[1])}" x2="${f(q[0])}" y2="${f(-q[1])}"/>`); }
-    lines.push(`</g>`);
-  }
-  lines.push(`<g id="path" fill="none" stroke-width="0.4" stroke-linejoin="round">`);
-  colourRuns().forEach((r, n) => {
-    if (r.pts.length < 2) return;
-    lines.push(`<polyline id="run${n}" stroke="${r.col}" points="${r.pts.map(h => { const p = to2(h); return f(p[0]) + "," + f(-p[1]); }).join(" ")}"/>`);
-  });
-  lines.push(`</g></svg>`);
-  return lines.join("\n");
-}
-function buildXyz() {
-  const k = mmPerDeg();
-  const rows = ["# 3-D path from the 4-D perspective step (before the 3-D view turn). mm. seed " + model.cfg.seed + ", xw " + view.xw.toFixed(4) + ", yw " + view.yw.toFixed(4), "t_s,x_mm,y_mm,z_mm,colour"];
-  for (const h of movingHist()) { const p = to3(h); rows.push([h[5].toFixed(2), ...p.map(v => (v * k).toFixed(3)), h[4]].join(",")); }
-  return rows.join("\n");
-}
-function buildRaw() {
-  const rows = ["# Homeostat deflections in degrees, one row per 30 ms of model time. seed " + model.cfg.seed + ", D " + model.D.join("/"),
-                "t_s,TL_deg,TR_deg,BR_deg,BL_deg,pos_TL,pos_TR,pos_BR,pos_BL,colour"];
-  for (const h of model.hist) rows.push([h[5].toFixed(2), h[0].toFixed(4), h[1].toFixed(4), h[2].toFixed(4), h[3].toFixed(4), ...h[6].map(q => q + 1), h[4]].join(","));
-  return rows.join("\n");
-}
-let downloads = null;
-if (window.claude && window.claude.use) window.claude.use("downloads").then(d => { downloads = d; }).catch(() => {});
-async function offer(filename, data, type) {
-  const st = $("status"); st.textContent = "";
-  try {
-    if (downloads) { await downloads.save({ filename, data }); st.textContent = `Saved ${filename}.`; return; }
-    if (location.protocol === "file:" || location.hostname === "localhost") {
-      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = filename; a.click();
-      st.textContent = `Saved ${filename}.`; return;
-    }
-    await navigator.clipboard.writeText(data);
-    st.textContent = `This view can't save files, so ${filename} was copied to the clipboard instead (${Math.round(data.length / 1024)} KB).`;
-  } catch (e) { st.textContent = `Couldn't save ${filename}: ${e && e.message ? e.message : e}.`; }
-}
-const stamp = () => `homeostat_${model.cfg.seed}_t${Math.round(model.t)}s`;
-$("exSvg").onclick = () => offer(stamp() + "_arm.svg", buildSvg(), "image/svg+xml");
-$("exXyz").onclick = () => offer(stamp() + "_path3d.csv", buildXyz(), "text/csv");
-$("exRaw").onclick = () => offer(stamp() + "_4d.csv", buildRaw(), "text/csv");
 
 const served = location.protocol.startsWith("http") && location.pathname.replace(/\/$/, "").endsWith("/sim");
 /* ---------------- Pot nodes: units run on ESP32s on USB, through the editor's /api/node ----------------
