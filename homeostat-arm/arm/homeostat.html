@@ -70,6 +70,7 @@ button:hover { border-color: var(--muted); }
 button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.nodes { font: 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; white-space: pre; overflow-x: auto; margin: 0 0 6px; color: var(--ink); }
 #log { font: 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; white-space: pre; overflow-x: auto; margin: 0; min-height: 6.2em; color: var(--ink); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stat { border-left: 3px solid var(--rule); padding-left: 8px; }
@@ -127,17 +128,13 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
     </div>
 
     <div class="card" id="nodeCard">
-      <h2>TL node</h2>
+      <h2>Pot nodes</h2>
       <div class="row">
-        <label class="check"><input type="checkbox" id="nodeOn"> TL runs on the pot node; TR, BR and BL run here, at the node's pace</label>
+        <label class="check"><input type="checkbox" id="nodeOn"> Units with a pot node run there; the rest run here, at the nodes' pace</label>
       </div>
-      <div class="stats">
-        <div class="stat"><b id="nTL">–</b><span>TL on the node, degrees</span></div>
-        <div class="stat"><b id="nNeedle">–</b><span>its needle, degrees</span></div>
-        <div class="stat"><b id="nMode">–</b><span>needle is</span></div>
-      </div>
+      <pre id="nodeList" class="nodes">no nodes heard yet</pre>
       <div id="nodeStatus" class="note" role="status"></div>
-      <p class="note">The pot node on USB (an ESP32 with a motorised knob, <code>homeostat/node</code>) runs unit TL itself and keeps the clock: this page sends it TR, BR and BL 20 times a second and steps them to the node's time, so the whole homeostat runs at the node's speed (×0.25 by default, as fast as its needle can follow; the run-speed slider sets it). Take hold of the knob and push: TL is held where you put it, and the other three answer. Let go and TL carries on. Pause here and the node waits.</p>
+      <p class="note">Each pot node on USB (an ESP32 with a motorised knob, <code>homeostat/node</code>) runs one unit itself: whichever it was set to (<code>id N</code> on the node). One of them keeps the clock; this page runs the units that have no node, steps them to that clock, and passes every node all four needles 20 times a second, so the whole homeostat runs at the nodes' speed (×0.25 by default, as fast as a needle can follow; the run-speed slider sets it). Take hold of a knob and push: that unit is held where you put it, and the rest answer. Let go and it carries on. Pause here and the nodes wait.</p>
     </div>
 
     <div class="card">
@@ -368,14 +365,14 @@ function drawDial(i) {
   ctx.strokeStyle = COLORS[i]; ctx.lineWidth = 7; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (R - 18) * s, cy - (R - 18) * c); ctx.stroke();
   ctx.fillStyle = "#ecebe6"; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill();
-  const tick0 = i === 0 && nodeLink.on && nodeLink.live && !nodeLink.held ? nodeLink.needle : null;
+  const nd = nodeOf(i), tick0 = nd && nodeLink.live && !nd.held ? nd.needle : null;
   if (tick0 != null) {                     // where the node's needle is, as a short white tick
     const fs = Math.sin(rad(tick0)), fc = Math.cos(rad(tick0));
     ctx.strokeStyle = "#ecebe6"; ctx.lineWidth = 3; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(cx + (R + 4) * fs, cy - (R + 4) * fc); ctx.lineTo(cx + (R + 16) * fs, cy - (R + 16) * fc); ctx.stroke();
   }
   const F = Math.abs(model.x[i]) > LIMIT, rd = unitEls[i].read;
-  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}${i === 0 && nodeLink.on && nodeLink.held ? "   held at the node" : ""}${i === 0 && nodeLink.on ? "   (on the node)" : ""}`;
+  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}${nd && nd.held ? "   held at the node" : ""}${nd ? "   (on its node)" : ""}`;
   rd.classList.toggle("f", F);
 }
 
@@ -427,14 +424,14 @@ $("period").oninput = () => { model.period = +$("period").value; };
 let acc = 0, last = performance.now();
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
-  if (running && nodeLink.on) {            // the node keeps the clock: step TR/BR/BL up to its time, TL as it says
+  if (running && nodeLink.on) {            // the nodes keep the clock: step the rest up to it, each node's unit as it says
     let n = 0;
+    const put = () => nodeLink.units.forEach(u => { const d = nodeLink.nodes[u]; model.x[u] = d.x; model.held[u] = true; });
     while (nodeLink.live && model.t + 0.03 <= nodeLink.t + 1e-9 && n++ < 20) {
-      model.x[0] = nodeLink.tl; model.held[0] = true;
-      frame(model);
-      model.q[0] = nodeLink.q;
+      put(); frame(model);
+      nodeLink.units.forEach(u => { model.q[u] = nodeLink.nodes[u].q; });
     }
-    if (nodeLink.live) model.x[0] = nodeLink.tl;   // TL's dial at the node's 20 Hz, not the 8 frames a second x0.25 gives
+    if (nodeLink.live) put();              // the nodes' dials at their 20 Hz, not the 8 frames a second x0.25 gives
   } else if (running) {
     acc = Math.min(acc + dt * SPEEDS[$("speed").value], 0.6);
     while (acc >= 0.03) { frame(model); acc -= 0.03; }
@@ -443,7 +440,7 @@ function tick(now) {
   NAMES.forEach((_, i) => drawDial(i));
   drawPlot();
   $("periodOut").textContent = (+$("period").value).toFixed(1) + " s";
-  $("speedOut").textContent = nodeLink.on && nodeLink.speed != null ? "×" + nodeLink.speed + " (set on the node)" : "×" + SPEEDS[$("speed").value];
+  $("speedOut").textContent = nodeLink.on && nodeLink.speed != null ? "×" + nodeLink.speed + " (set on the nodes)" : "×" + SPEEDS[$("speed").value];
   $("tOut").textContent = model.t.toFixed(1); $("pulsesOut").textContent = model.pulses; $("stepsOut").textContent = model.steps;
   $("log").textContent = model.events.slice(-6).join("\n");
   if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) updateExportStats();
@@ -522,65 +519,105 @@ $("exXyz").onclick = () => offer(stamp() + "_path3d.csv", buildXyz(), "text/csv"
 $("exRaw").onclick = () => offer(stamp() + "_4d.csv", buildRaw(), "text/csv");
 
 const served = location.protocol.startsWith("http") && location.pathname.replace(/\/$/, "").endsWith("/sim");
-/* ---------------- TL node: the pot node on USB runs TL, through the editor's /api/node ----------------
-   The node keeps the clock. 20 times a second this page sends TR, BR and BL at its model time, and
-   hears back TL, TL's uniselector, the hand and the node's time; tick() steps TR/BR/BL up to that
-   time with TL as the node has it. One page drives the node at a time. */
-const nodeLink = { on: false, busy: false, live: false, t: 0, tl: 0, q: 0, held: false, needle: null, speed: null,
-                   cmds: [], claim: false, firstVersion: null, id: Math.random().toString(36).slice(2, 10) };
+/* ---------------- Pot nodes: units run on ESP32s on USB, through the editor's /api/node ----------------
+   Each node runs one unit and says which. The lowest-numbered linked node keeps the clock; the others
+   step only up to the time this page passes on from it. 20 times a second this page sends every node
+   all four needles at that time, and hears back each node's unit, uniselector, hand and time; tick()
+   steps the units with no node up to the slowest node's time. One page drives the nodes at a time. */
+const NAMES_U = ["TL", "TR", "BR", "BL"];
+const nodeLink = { on: false, busy: false, live: false, t: 0, speed: null, units: [], master: null, nodes: {},
+                   heard: [], cmds: [], claim: false, pending: false, starting: false, firstVersion: {},
+                   id: Math.random().toString(36).slice(2, 10) };
+function nodeOf(i) { return nodeLink.on && nodeLink.units.includes(i) ? nodeLink.nodes[i] : null; }
 function nodeCmd(c) { if (nodeLink.on) nodeLink.cmds.push(c); }
-function nodeLinkStart() {                  // the node starts TL from its knob, with this page's machine
-  const p = PRESETS[$("preset").value];
-  const seed = +$("seed").value || p.seed;
+function nodeLinkStart() {                  // the next tick links every node it can hear, with this page's machine
   restart();
-  nodeLink.live = false; nodeLink.t = 0; nodeLink.starting = true;   // until the node's clock reads ~0
-  nodeLink.cmds = [`link ${$("preset").value} ${seed} ${$("signed").checked ? 1 : 0} ${(+$("period").value).toFixed(1)}`];
-  nodeLink.claim = true;
+  nodeLink.live = false; nodeLink.t = 0; nodeLink.units = []; nodeLink.nodes = {};
+  nodeLink.cmds = []; nodeLink.pending = true; nodeLink.claim = true;
+}
+function linkCmds(heard) {                  // heard: the nodes the editor has, with a known unit
+  const p = PRESETS[$("preset").value], seed = +$("seed").value || p.seed;
+  const units = [...new Set(heard.map(n => n.u))].sort();
+  nodeLink.units = units; nodeLink.master = units[0];
+  nodeLink.nodes = Object.fromEntries(units.map(u => [u, { x: model.x[u], q: 0, held: false, needle: null, t: 0 }]));
+  nodeLink.cmds = units.map(u => `${u}:link ${$("preset").value} ${seed} ${$("signed").checked ? 1 : 0} ${(+$("period").value).toFixed(1)} ${u === units[0] ? 1 : 0}`);
+  nodeLink.starting = true;                 // until every node's clock reads ~0
 }
 function nodeOff(why) {
-  nodeLink.on = false; nodeLink.live = false; $("nodeOn").checked = false;
-  model.held[0] = false;
+  nodeLink.units.forEach(u => { model.held[u] = false; });
+  nodeLink.on = false; nodeLink.live = false; nodeLink.units = []; $("nodeOn").checked = false;
   if (why) $("nodeStatus").textContent = why;
 }
 $("nodeOn").onchange = () => {
   if (!$("nodeOn").checked) { nodeCmd("stop"); nodeTick(); return nodeOff(""); }
   nodeLink.on = true; nodeLinkStart();
-  if (!served) $("nodeStatus").textContent = "Open this page from the layout editor (…:8792/sim) to reach the node.";
+  if (!served) $("nodeStatus").textContent = "Open this page from the layout editor (…:8792/sim) to reach the nodes.";
 };
-// restarts and settings that the node needs to hear about
+// restarts and settings that the nodes need to hear about
 ["reset", "preset", "signed"].forEach(id => $(id).addEventListener(id === "reset" ? "click" : "change", () => { if (nodeLink.on) nodeLinkStart(); }));
 $("speed").addEventListener("input", () => nodeCmd("speed " + SPEEDS[$("speed").value]));
 $("period").addEventListener("input", () => nodeCmd("period " + (+$("period").value).toFixed(1)));
-unitEls[0].slider.addEventListener("input", () => nodeCmd("d0 " + (+unitEls[0].slider.value).toFixed(2)));
+unitEls.forEach((el, i) => el.slider.addEventListener("input", () => { if (nodeOf(i)) nodeCmd(`${i}:d0 ${(+el.slider.value).toFixed(2)}`); }));
+
+const fmt = v => v == null ? "   –  " : (v >= 0 ? "+" : "") + v.toFixed(1).padStart(5);
+function showNodes(list) {
+  $("nodeList").textContent = list.length ? list.map(n =>
+    `${(n.unit || "?").padEnd(3)}${n.master ? "*" : " "} ${n.port.padEnd(6)} ` +
+    (n.connected && !n.error && n.x != null ? `${fmt(n.x)}°  needle ${fmt(n.needle)}°  ${n.held ? "held by a hand" : ({ follow: "following", fault: "stopped (fault)" }[n.mode] || n.mode || "")}` : (n.error || "not connected")) +
+    `\n      ${n.version || "version not heard yet"}` +
+    (nodeLink.firstVersion[n.port] && n.version !== nodeLink.firstVersion[n.port] ? "  (reflashed since this page opened)" : "") +
+    (n.note ? `\n      last said: ${n.note}` : "")).join("\n") + (list.some(n => n.master) ? "\n* keeps the clock" : "")
+    : "no nodes heard: plug one in";
+}
 
 async function nodeTick() {
-  if (!nodeLink.on || nodeLink.busy || !served) return;
+  if (!served) return;
+  if (nodeLink.busy) return;
   nodeLink.busy = true;
   try {
-    let q = "?id=" + nodeLink.id + (nodeLink.claim ? "&claim=1" : "");
-    if (nodeLink.cmds.length) q += "&cmd=" + encodeURIComponent(nodeLink.cmds.shift());
-    else if (running && nodeLink.live) q += "&n=" + [model.t, model.x[1], model.x[2], model.x[3]].map(v => v.toFixed(3)).join(",");
+    let q = "";
+    if (nodeLink.on) {
+      q = "?id=" + nodeLink.id + (nodeLink.claim ? "&claim=1" : "");
+      if (nodeLink.cmds.length) q += "&cmd=" + encodeURIComponent(nodeLink.cmds.shift());
+      else if (running && nodeLink.live) {
+        const x = [0, 1, 2, 3].map(i => nodeOf(i) ? nodeLink.nodes[i].x : model.x[i]);
+        q += "&n=" + [nodeLink.nodes[nodeLink.master].t, ...x].map(v => v.toFixed(3)).join(",");
+      }
+    }
     const s = await (await fetch("/api/node" + q)).json();
+    const list = s.nodes || [];
+    list.forEach(n => { if (n.version && !(n.port in nodeLink.firstVersion)) nodeLink.firstVersion[n.port] = n.version; });
+    showNodes(list);
+    if (!nodeLink.on) return;
     nodeLink.claim = false;
-    if (s.driving === false) { nodeOff("Another open sim page has the node now (each page runs its own homeostat). Tick the box again to take it back."); return; }
-    let fresh = s.connected && !s.error && s.t != null;
-    if (nodeLink.starting) {               // ignore the node's old clock until the new link has started
-      if (fresh && !nodeLink.cmds.length && s.t < 1) nodeLink.starting = false; else fresh = false;
+    if (s.driving === false) { nodeOff("Another open sim page has the nodes now (each page runs its own homeostat). Tick the box again to take them back."); return; }
+    const heard = list.filter(n => n.connected && n.u != null && n.version);
+    if (nodeLink.pending) {
+      if (!heard.length) { $("nodeStatus").textContent = s.error || "Waiting to hear a node…"; return; }
+      nodeLink.pending = false; linkCmds(heard); return;
     }
-    if (fresh && s.t + 0.5 < nodeLink.t) {  // its clock went back: it restarted under us
-      nodeOff("The node restarted (reflashed or reset). Tick the box to link again."); return;
+    const byU = Object.fromEntries(list.filter(n => n.connected && !n.error && n.t != null).map(n => [n.u, n]));
+    const all = nodeLink.units.every(u => byU[u]);
+    if (nodeLink.starting) {               // ignore the nodes' old clocks until the new link has started
+      if (all && !nodeLink.cmds.length && nodeLink.units.every(u => byU[u].t < 1)) nodeLink.starting = false;
+      else { nodeLink.live = false; return; }
     }
-    nodeLink.live = fresh && !nodeLink.cmds.length;
-    if (fresh) Object.assign(nodeLink, { t: s.t, tl: s.tl, q: s.q, held: !!s.held, needle: s.needle, speed: s.speed });
-    if (s.version && nodeLink.firstVersion === null) nodeLink.firstVersion = s.version;
-    $("nTL").textContent = fresh ? (s.tl >= 0 ? "+" : "") + s.tl.toFixed(1) : "–";
-    $("nNeedle").textContent = fresh ? (s.needle >= 0 ? "+" : "") + s.needle.toFixed(1) : "–";
-    $("nMode").textContent = fresh ? (s.held ? "held by a hand" : { follow: "following TL", fault: "stopped (fault)" }[s.mode] || s.mode) : "–";
-    $("nodeStatus").textContent = !s.connected || s.error ? (s.error || "not connected") :
-      `on ${s.port}, firmware ${s.version || "?"}` +
-      (nodeLink.firstVersion && s.version !== nodeLink.firstVersion ? " (reflashed since this page opened)" : "") +
-      (s.link === "waiting" ? " · waiting for this page" : "") +
-      (s.note ? ` · last said: ${s.note}` : "");
+    if (!all) {
+      const gone = nodeLink.units.filter(u => !byU[u]).map(u => NAMES_U[u]).join(", ");
+      nodeLink.live = false; $("nodeStatus").textContent = `Not hearing ${gone}: waiting (unplugged, or being flashed?).`; return;
+    }
+    for (const u of nodeLink.units) {
+      const n = byU[u];
+      if (n.t + 0.5 < nodeLink.nodes[u].t) { nodeOff(`${NAMES_U[u]}'s node restarted (reflashed or reset). Tick the box to link again.`); return; }
+      Object.assign(nodeLink.nodes[u], { x: n.x, q: n.q, held: !!n.held, needle: n.needle, t: n.t, mode: n.mode });
+    }
+    nodeLink.t = Math.min(...nodeLink.units.map(u => byU[u].t));
+    nodeLink.speed = byU[nodeLink.master].speed;
+    nodeLink.live = !nodeLink.cmds.length;
+    const waiting = nodeLink.units.some(u => byU[u].link === "waiting");
+    $("nodeStatus").textContent = `Linked: ${nodeLink.units.map(u => NAMES_U[u]).join(", ")} on nodes, ` +
+      `${[0, 1, 2, 3].filter(i => !nodeLink.units.includes(i)).map(i => NAMES_U[i]).join(", ") || "none"} here. ` +
+      `${NAMES_U[nodeLink.master]} keeps the clock.` + (waiting ? " Waiting for this page." : "");
   } catch (e) {
     $("nodeStatus").textContent = "Couldn't reach the editor: " + (e && e.message ? e.message : e);
   } finally { nodeLink.busy = false; }

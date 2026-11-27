@@ -212,12 +212,20 @@ body { margin: 0 } img { max-width: 100% }</style>
 </section>
 
 <section>
+  <h2>Day two: node 2 is TR</h2>
+  <p>A second node, built the same way, became TR. The firmware now keeps each node's unit, its pot calibration and its minimum push in flash, so the same sketch (v1.11) goes on every node. Node 2's pot reads differently from node 1's (its −50 mark 1751 against 1779) and is stiffer through the counter-clockwise stretch: at node 1's minimum push it stalled near −43°, and it needs 650 of 1023. Its zero was set by eye, and the ends from node 1's proportions, to be redone when the nodes are mounted.</p>
+  <p>Linked together through the sim page, TL keeps the clock and TR follows it, stepping only as far as the time the page passes on; the page runs BR and BL. The two nodes stayed within 0.06 s of each other, both needles followed their units to about 1° on average, and TR reorganised on its own node at t = 6 s, as the page logged.</p>
+  <p>Getting there took a motor supply that was off (node 2's 5 V) and a run of USB cables that power a board but don't carry data: Windows shows those as an unknown USB device whose descriptor request failed.</p>
+</section>
+
+<section>
   <h2>Firmware</h2>
   <p>All in <a href="https://github.com/sui001/homeostat/tree/main/node">node/</a> in this repository, for an ESP32-DevKitC-32E (esp32 core 3.x, board "ESP32 Dev Module").</p>
   <div class="tw"><table>
     <tr><th>File</th><th>What it does</th></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_0</code> … <code>v1_7</code></a></td><td>Bring-up. Reads the pot, jogs and holds the motor on command, a speed test, live calibration (<code>lo</code> / <code>zero</code> / <code>hi</code>) and tuning (<code>kp</code> <code>min</code> <code>max</code> <code>db</code>). v1.7: follow with hand takeover (<code>f D</code>; <code>he</code> <code>hg</code> <code>hm</code> <code>still</code>) and the wiper filter. Each version kept</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_8</code> … <code>v1_10</code></a></td><td>The unit: PT's model in <code>unit.h</code> (<code>run</code>, <code>check</code>), then linked to the sim page through the layout editor (<code>link</code>, <code>N</code>; <code>homeostat-arm/arm/node.py</code> is the bridge). v1.10 smooths the needle</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench/node_v1_11"><code>bench/node_v1_11</code></a></td><td>Any unit: <code>id N</code>, with the unit, calibration and minimum push kept in flash (<code>cal</code> shows them). Linked, one node keeps the clock and the others follow it</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/blob/main/node/flash.ps1"><code>flash.ps1</code></a></td><td>Writes the version from git, compiles, uploads, shows the boot line</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/print"><code>print/needle_v1_0.py</code></a></td><td>Builds the needle STL and checks it; the STL's header carries the git version</td></tr>
   </table></div>
@@ -241,7 +249,7 @@ body { margin: 0 } img { max-width: 100% }</style>
     <li>A second node and the wired ring.</li>
     <li>A hub: another ESP32 serving the sim page over WiFi and showing every node's firmware version, so the laptop can go.</li>
   </ul>
-  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Day one recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>; day two on <code>node_v1.7</code> to <code>node_v1.10</code>.</p>
+  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Day one recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>; day two on <code>node_v1.7</code> to <code>node_v1.11</code>, with node 2 as TR.</p>
 </section>
 </main>
 </body>

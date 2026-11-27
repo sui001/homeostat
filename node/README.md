@@ -24,7 +24,14 @@ there). Needle printable (`print/needle_v1_0.stl`). **TL runs on the node** (`be
 PT's model in `unit.h`, checked against the browser sim to 6 decimal places) and **links to the sim
 page** (`node_v1_9`, `node_v1_10`): plug the node into the laptop running the layout editor, open
 `localhost:8792/sim`, tick *TL node*, and the page runs TR, BR and BL at the node's pace (x0.25 real
-time) while the knob is TL's needle and hand. Not yet: the wired ring.
+time) while the knob is TL's needle and hand. **Node 2 is TR** (`node_v1_11`, the same sketch on
+every node: `id N` sets the unit, and each node keeps its unit, calibration and minimum push in
+flash). With both on USB, the sim page links every node it hears: the lowest unit keeps the clock,
+the others follow it, and the page runs the units with no node. Not yet: the wired ring.
+
+Setting up a new node: flash `bench/node_v1_11`, then over serial `id N` (0 TL, 1 TR, 2 BR, 3 BL),
+`lo` / `zero` / `hi` at its three marks, and `min N` if the pot is stiff (node 2 needs 650). `cal`
+shows what it has saved.
 Start with one node; it simulates the other three until real ones join.
 
 ## Parts (one node)
