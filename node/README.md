@@ -20,8 +20,11 @@ overrule.
 Status (27 Nov 2026): **node 1 on the bench.** The pot reads cleanly, the motor holds any angle
 within ~1°, calibrated to marks on the faceplate, and **a hand can take the needle**
 (`bench/node_v1_7`: push against it and the motor goes slack; leave it still 0.7 s and it holds
-there). Needle printable (`print/needle_v1_0.stl`). Not yet: the unit's equation on the node, the
-wired ring.
+there). Needle printable (`print/needle_v1_0.stl`). **TL runs on the node** (`bench/node_v1_8`:
+PT's model in `unit.h`, checked against the browser sim to 6 decimal places) and **links to the sim
+page** (`node_v1_9`, `node_v1_10`): plug the node into the laptop running the layout editor, open
+`localhost:8792/sim`, tick *TL node*, and the page runs TR, BR and BL at the node's pace (x0.25 real
+time) while the knob is TL's needle and hand. Not yet: the wired ring.
 Start with one node; it simulates the other three until real ones join.
 
 ## Parts (one node)

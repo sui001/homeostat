@@ -19,7 +19,7 @@ import json, math, os, re, signal, subprocess, sys, threading, time, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
-import gen3, plan, editor_core as ec, attractors, armstream, version, fader
+import gen3, plan, editor_core as ec, attractors, armstream, version, fader, node
 
 VERSION = version.get()       # what this editor is running: the pages show it, and reload when it changes
 
@@ -479,6 +479,13 @@ class H(BaseHTTPRequestHandler):
                     tl = q.get("tl")
                     s["driving"] = fader.follow(float(tl) if tl not in (None, "") else None, q["id"], q.get("claim") == "1")
                 return self.send(200, dict(fader.state(), **s))
+            if u.path == "/api/node":        # ?id=<page>[&claim=1][&n=t,a,b,c][&cmd=...]: the pot node runs TL,
+                s = dict(driving=None)        # the page runs TR/BR/BL at the node's time (one page at a time)
+                if "id" in q:
+                    n = q.get("n")
+                    s["driving"] = node.send(q["id"], q.get("claim") == "1",
+                                             n.split(",") if n else None, q.get("cmd"))
+                return self.send(200, dict(node.state(), **s))
             if u.path == "/api/plans":
                 return self.send(200, list_plans())
             if u.path == "/api/runtimes":
@@ -644,6 +651,7 @@ if __name__ == "__main__":
         pass
     threading.Thread(target=load_sweep, daemon=True).start()
     fader.start()                    # the TL fader on USB, if there is one (or pyserial)
+    node.start()                     # the TL pot node on USB (homeostat/node), likewise
     def warm():      # the measured table height (else the default), for printing and for light
         z = json.load(open(TABLE))["z"] if os.path.exists(TABLE) else 0.16
         reach(z); reach(z, True)

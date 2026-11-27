@@ -205,11 +205,19 @@ body { margin: 0 } img { max-width: 100% }</style>
 </section>
 
 <section>
+  <h2>Day two: the unit, and the link to the sim</h2>
+  <p>PT's model now runs on the node (v1.8): the same equation, integrator and uniselector schedules as the browser sim, ported line for line, and checked against it to six decimal places. TL drives the needle; a hand on the knob holds TL where the hand puts it, as dragging TL's dial does on the sim page. Hands off, the needle stayed within 1.0° of TL on average and 2.6° at worst.</p>
+  <p>Then the node joined the sim page (v1.9). Plugged into the laptop running the layout editor, it keeps the clock and runs TL; the page runs TR, BR and BL and steps them to the node's time, so the whole homeostat moves at a pace the motor can follow (×0.25 real time). Pushing the knob around moved TL on the page, and the other three answered. TL reorganised on the node at t = 10 s, and the page agreed.</p>
+  <p>The motion was jerky at first, then ran, paused and ran again. Two causes, both in v1.10 now: the push that keeps the needle up with TL was worked out from whole counts every 2–3 ms, so it flicked between nothing and full power; and once that was smoothed, it ran the needle a little ahead of TL, which the hand check took for a hand and froze TL. The push now eases off when the needle is ahead, and only a push towards TL can be resisted by a hand. After: within about 1° of TL, no false grabs.</p>
+</section>
+
+<section>
   <h2>Firmware</h2>
   <p>All in <a href="https://github.com/sui001/homeostat/tree/main/node">node/</a> in this repository, for an ESP32-DevKitC-32E (esp32 core 3.x, board "ESP32 Dev Module").</p>
   <div class="tw"><table>
     <tr><th>File</th><th>What it does</th></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_0</code> … <code>v1_7</code></a></td><td>Bring-up. Reads the pot, jogs and holds the motor on command, a speed test, live calibration (<code>lo</code> / <code>zero</code> / <code>hi</code>) and tuning (<code>kp</code> <code>min</code> <code>max</code> <code>db</code>). v1.7: follow with hand takeover (<code>f D</code>; <code>he</code> <code>hg</code> <code>hm</code> <code>still</code>) and the wiper filter. Each version kept</td></tr>
+    <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/bench"><code>bench/node_v1_8</code> … <code>v1_10</code></a></td><td>The unit: PT's model in <code>unit.h</code> (<code>run</code>, <code>check</code>), then linked to the sim page through the layout editor (<code>link</code>, <code>N</code>; <code>homeostat-arm/arm/node.py</code> is the bridge). v1.10 smooths the needle</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/blob/main/node/flash.ps1"><code>flash.ps1</code></a></td><td>Writes the version from git, compiles, uploads, shows the boot line</td></tr>
     <tr><td><a href="https://github.com/sui001/homeostat/tree/main/node/print"><code>print/needle_v1_0.py</code></a></td><td>Builds the needle STL and checks it; the STL's header carries the git version</td></tr>
   </table></div>
@@ -230,10 +238,10 @@ body { margin: 0 } img { max-width: 100% }</style>
   <h2>Next</h2>
   <ul>
     <li>Print the needle, check the fit, and re-read the three marks with it on.</li>
-    <li>The unit running on the node: its own equation every 60 ms, three neighbours simulated, the needle following it, and the uniselector firing past ±45°.</li>
     <li>A second node and the wired ring.</li>
+    <li>A hub: another ESP32 serving the sim page over WiFi and showing every node's firmware version, so the laptop can go.</li>
   </ul>
-  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Day one recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>; day two on <code>node_v1.7</code>.</p>
+  <p class="ts" style="color:var(--muted);font-size:.85rem;margin-top:18px">Day one recorded with node 1 on firmware <code>node_v1.6 423d084 · 26 Nov 16:52</code>; day two on <code>node_v1.7</code> to <code>node_v1.10</code>.</p>
 </section>
 </main>
 </body>

@@ -126,18 +126,18 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
       <p class="note">Restart applies the preset, seed and polarity setting. Model time per frame is fixed (3 RK4 steps of 10 ms), so a given seed always traces the same path at any speed.</p>
     </div>
 
-    <div class="card" id="faderCard">
-      <h2>TL fader</h2>
+    <div class="card" id="nodeCard">
+      <h2>TL node</h2>
       <div class="row">
-        <label class="check"><input type="checkbox" id="faderOn"> TL drives the fader, and a hand on the fader holds TL</label>
+        <label class="check"><input type="checkbox" id="nodeOn"> TL runs on the pot node; TR, BR and BL run here, at the node's pace</label>
       </div>
       <div class="stats">
-        <div class="stat"><b id="fDeg">–</b><span>fader, degrees</span></div>
-        <div class="stat"><b id="fMode">–</b><span>fader is</span></div>
-        <div class="stat"><b id="fLag">–</b><span>behind TL, degrees</span></div>
+        <div class="stat"><b id="nTL">–</b><span>TL on the node, degrees</span></div>
+        <div class="stat"><b id="nNeedle">–</b><span>its needle, degrees</span></div>
+        <div class="stat"><b id="nMode">–</b><span>needle is</span></div>
       </div>
-      <div id="faderStatus" class="note" role="status"></div>
-      <p class="note">The motorised fader on USB plays TL's needle: it follows TL, and when you take hold of it and push, it lets go and holds TL wherever you put it, the same as dragging TL's dial. Let go and leave it still for a moment, and TL carries on from there. The fader works through the layout editor it is plugged into (this page's own server); <a href="/fader" target="_blank" rel="noopener">its own page</a> shows it alone.</p>
+      <div id="nodeStatus" class="note" role="status"></div>
+      <p class="note">The pot node on USB (an ESP32 with a motorised knob, <code>homeostat/node</code>) runs unit TL itself and keeps the clock: this page sends it TR, BR and BL 20 times a second and steps them to the node's time, so the whole homeostat runs at the node's speed (×0.25 by default, as fast as its needle can follow; the run-speed slider sets it). Take hold of the knob and push: TL is held where you put it, and the other three answer. Let go and TL carries on. Pause here and the node waits.</p>
     </div>
 
     <div class="card">
@@ -166,14 +166,10 @@ button.primary { background: var(--ink); color: var(--paper); border-color: var(
         <button id="exRaw">4-D data (.csv)</button>
       </div>
       <div class="row">
-        <button class="primary" id="exArm">Send to the arm</button>
-        <a id="editorLink" href="/" target="_blank" rel="noopener" hidden>Layout editor</a>
-      </div>
-      <div class="row">
         <label class="check"><input type="checkbox" id="withCube" checked> Include tesseract in drawing</label>
       </div>
       <div id="status" role="status"></div>
-      <p class="note">Exports use the view as it is now; untick 4-D spin first to hold an angle. The SVG is the 2-D projection on screen, one polyline per colour (one pen each). The 3-D path is the 4-D perspective step only, before the 3-D turn: x, y, z in mm, ready to sweep a tube along. Send to the arm passes that same path to the layout editor on armster, where it is placed, planned and run. Both skip samples that moved under 0.25°, so the settled tail doesn't pile up; the 4-D data keeps every sample.</p>
+      <p class="note">Exports use the view as it is now; untick 4-D spin first to hold an angle. The SVG is the 2-D projection on screen, one polyline per colour (one pen each). The 3-D path is the 4-D perspective step only, before the 3-D turn: x, y, z in mm, ready to sweep a tube along. Both skip samples that moved under 0.25°, so the settled tail doesn't pile up; the 4-D data keeps every sample.</p>
     </div>
   </section>
 </main>
@@ -372,13 +368,14 @@ function drawDial(i) {
   ctx.strokeStyle = COLORS[i]; ctx.lineWidth = 7; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (R - 18) * s, cy - (R - 18) * c); ctx.stroke();
   ctx.fillStyle = "#ecebe6"; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill();
-  if (i === 0 && faderLink.on && faderLink.s && faderLink.s.deg != null && !faderLink.holding) {   // where the fader is, as a short white tick
-    const fs = Math.sin(rad(faderLink.s.deg)), fc = Math.cos(rad(faderLink.s.deg));
+  const tick0 = i === 0 && nodeLink.on && nodeLink.live && !nodeLink.held ? nodeLink.needle : null;
+  if (tick0 != null) {                     // where the node's needle is, as a short white tick
+    const fs = Math.sin(rad(tick0)), fc = Math.cos(rad(tick0));
     ctx.strokeStyle = "#ecebe6"; ctx.lineWidth = 3; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(cx + (R + 4) * fs, cy - (R + 4) * fc); ctx.lineTo(cx + (R + 16) * fs, cy - (R + 16) * fc); ctx.stroke();
   }
   const F = Math.abs(model.x[i]) > LIMIT, rd = unitEls[i].read;
-  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}${i === 0 && faderLink.holding ? "   held at the fader" : ""}`;
+  rd.textContent = `${(model.x[i] >= 0 ? "+" : "") + model.x[i].toFixed(1)}°   pos ${model.q[i] + 1}   D ${(model.D[i] >= 0 ? "+" : "") + model.D[i].toFixed(1)}${F ? "   F" : ""}${i === 0 && nodeLink.on && nodeLink.held ? "   held at the node" : ""}${i === 0 && nodeLink.on ? "   (on the node)" : ""}`;
   rd.classList.toggle("f", F);
 }
 
@@ -430,7 +427,15 @@ $("period").oninput = () => { model.period = +$("period").value; };
 let acc = 0, last = performance.now();
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
-  if (running) {
+  if (running && nodeLink.on) {            // the node keeps the clock: step TR/BR/BL up to its time, TL as it says
+    let n = 0;
+    while (nodeLink.live && model.t + 0.03 <= nodeLink.t + 1e-9 && n++ < 20) {
+      model.x[0] = nodeLink.tl; model.held[0] = true;
+      frame(model);
+      model.q[0] = nodeLink.q;
+    }
+    if (nodeLink.live) model.x[0] = nodeLink.tl;   // TL's dial at the node's 20 Hz, not the 8 frames a second x0.25 gives
+  } else if (running) {
     acc = Math.min(acc + dt * SPEEDS[$("speed").value], 0.6);
     while (acc >= 0.03) { frame(model); acc -= 0.03; }
   }
@@ -438,7 +443,7 @@ function tick(now) {
   NAMES.forEach((_, i) => drawDial(i));
   drawPlot();
   $("periodOut").textContent = (+$("period").value).toFixed(1) + " s";
-  $("speedOut").textContent = "×" + SPEEDS[$("speed").value];
+  $("speedOut").textContent = nodeLink.on && nodeLink.speed != null ? "×" + nodeLink.speed + " (set on the node)" : "×" + SPEEDS[$("speed").value];
   $("tOut").textContent = model.t.toFixed(1); $("pulsesOut").textContent = model.pulses; $("stepsOut").textContent = model.steps;
   $("log").textContent = model.events.slice(-6).join("\n");
   if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) updateExportStats();
@@ -516,81 +521,71 @@ $("exSvg").onclick = () => offer(stamp() + "_arm.svg", buildSvg(), "image/svg+xm
 $("exXyz").onclick = () => offer(stamp() + "_path3d.csv", buildXyz(), "text/csv");
 $("exRaw").onclick = () => offer(stamp() + "_4d.csv", buildRaw(), "text/csv");
 
-// Send to the arm: the same 3-D path as the .csv, as JSON, to the layout editor that serves this page.
-// Opened as a file (no editor behind it), it saves the JSON instead, to load in the editor by hand.
-function buildArm() {
-  const k = mmPerDeg();
-  return { format: "homeostat-path/1", seed: model.cfg.seed, preset: PRESETS[$("preset").value].name,
-           t_end: +model.t.toFixed(2), view: { xw: +view.xw.toFixed(5), yw: +view.yw.toFixed(5) },
-           mm_per_90: +$("mm").value || 120,
-           points: movingHist().map(h => [+h[5].toFixed(3), ...to3(h).map(v => +(v * k).toFixed(3))]) };
-}
 const served = location.protocol.startsWith("http") && location.pathname.replace(/\/$/, "").endsWith("/sim");
-if (served) $("editorLink").hidden = false;
-$("exArm").onclick = async () => {
-  const d = buildArm(), st = $("status");
-  if (d.points.length < 20) { st.textContent = "Let it run a little first: there's hardly any path yet."; return; }
-  if (!served) { await offer(stamp() + "_arm.json", JSON.stringify(d), "application/json"); st.textContent += " Load it in the layout editor with Load a file."; return; }
-  const tab = window.open("", "homeostat-editor");      // the print page: the same tab each time
-  st.textContent = "Sending…";
-  try {
-    const r = await fetch("/api/import", { method: "POST", body: JSON.stringify(d) }), res = await r.json();
-    if (!r.ok) throw new Error(res.error || r.status);
-    const url = "/?import=" + encodeURIComponent(res.name);
-    st.innerHTML = `Sent ${d.points.length} points (t 0 to ${d.t_end.toFixed(1)} s) as ${res.name}, and opened it on the print page. ` +
-                   `<a href="${url}" target="homeostat-editor">Open it again</a>.`;
-    if (tab) { tab.location.href = url; tab.focus(); } else location.href = url;   // pop-ups blocked: go there in this tab
-  } catch (e) { if (tab) tab.close(); st.textContent = "Couldn't send it: " + (e && e.message ? e.message : e) + "."; }
-};
-
-/* ---------------- TL fader: the motorised fader on USB, through the editor's /api/fader ----------------
-   20 times a second: tell it where TL is, and hear back where it is. When a hand holds the fader it says
-   "held", and TL is held there (as dragging the dial does) until the hand lets go. */
-// Every open copy of this page runs its own homeostat, so the fader follows one page at a time:
-// ticking the box claims it, and a page that loses it to another unticks itself and says so.
-const faderLink = { on: false, busy: false, holding: false, s: null, firstVersion: null, claim: false,
-                    id: Math.random().toString(36).slice(2, 10) };
-function faderOff(why) {
-  faderLink.on = false; $("faderOn").checked = false;
-  if (faderLink.holding) { model.held[0] = false; faderLink.holding = false; }
-  if (why) $("faderStatus").textContent = why;
+/* ---------------- TL node: the pot node on USB runs TL, through the editor's /api/node ----------------
+   The node keeps the clock. 20 times a second this page sends TR, BR and BL at its model time, and
+   hears back TL, TL's uniselector, the hand and the node's time; tick() steps TR/BR/BL up to that
+   time with TL as the node has it. One page drives the node at a time. */
+const nodeLink = { on: false, busy: false, live: false, t: 0, tl: 0, q: 0, held: false, needle: null, speed: null,
+                   cmds: [], claim: false, firstVersion: null, id: Math.random().toString(36).slice(2, 10) };
+function nodeCmd(c) { if (nodeLink.on) nodeLink.cmds.push(c); }
+function nodeLinkStart() {                  // the node starts TL from its knob, with this page's machine
+  const p = PRESETS[$("preset").value];
+  const seed = +$("seed").value || p.seed;
+  restart();
+  nodeLink.live = false; nodeLink.t = 0; nodeLink.starting = true;   // until the node's clock reads ~0
+  nodeLink.cmds = [`link ${$("preset").value} ${seed} ${$("signed").checked ? 1 : 0} ${(+$("period").value).toFixed(1)}`];
+  nodeLink.claim = true;
 }
-$("faderOn").onchange = () => {
-  if (!$("faderOn").checked) return faderOff("");
-  faderLink.on = true; faderLink.claim = true;
-  if (!served) $("faderStatus").textContent = "Open this page from the layout editor (…:8792/sim) to reach the fader.";
+function nodeOff(why) {
+  nodeLink.on = false; nodeLink.live = false; $("nodeOn").checked = false;
+  model.held[0] = false;
+  if (why) $("nodeStatus").textContent = why;
+}
+$("nodeOn").onchange = () => {
+  if (!$("nodeOn").checked) { nodeCmd("stop"); nodeTick(); return nodeOff(""); }
+  nodeLink.on = true; nodeLinkStart();
+  if (!served) $("nodeStatus").textContent = "Open this page from the layout editor (…:8792/sim) to reach the node.";
 };
-async function faderTick() {
-  if (!faderLink.on || faderLink.busy || !served) return;
-  faderLink.busy = true;
+// restarts and settings that the node needs to hear about
+["reset", "preset", "signed"].forEach(id => $(id).addEventListener(id === "reset" ? "click" : "change", () => { if (nodeLink.on) nodeLinkStart(); }));
+$("speed").addEventListener("input", () => nodeCmd("speed " + SPEEDS[$("speed").value]));
+$("period").addEventListener("input", () => nodeCmd("period " + (+$("period").value).toFixed(1)));
+unitEls[0].slider.addEventListener("input", () => nodeCmd("d0 " + (+unitEls[0].slider.value).toFixed(2)));
+
+async function nodeTick() {
+  if (!nodeLink.on || nodeLink.busy || !served) return;
+  nodeLink.busy = true;
   try {
-    const q = "?id=" + faderLink.id + (faderLink.claim ? "&claim=1" : "") + (faderLink.holding ? "" : "&tl=" + model.x[0].toFixed(2));
-    const s = await (await fetch("/api/fader" + q)).json();
-    faderLink.claim = false;
-    if (s.driving === false) {
-      faderOff("Another open sim page has the fader now (each page runs its own homeostat). Tick the box again to take it back.");
-      return;
+    let q = "?id=" + nodeLink.id + (nodeLink.claim ? "&claim=1" : "");
+    if (nodeLink.cmds.length) q += "&cmd=" + encodeURIComponent(nodeLink.cmds.shift());
+    else if (running && nodeLink.live) q += "&n=" + [model.t, model.x[1], model.x[2], model.x[3]].map(v => v.toFixed(3)).join(",");
+    const s = await (await fetch("/api/node" + q)).json();
+    nodeLink.claim = false;
+    if (s.driving === false) { nodeOff("Another open sim page has the node now (each page runs its own homeostat). Tick the box again to take it back."); return; }
+    let fresh = s.connected && !s.error && s.t != null;
+    if (nodeLink.starting) {               // ignore the node's old clock until the new link has started
+      if (fresh && !nodeLink.cmds.length && s.t < 1) nodeLink.starting = false; else fresh = false;
     }
-    faderLink.s = s;
-    const live = s.connected && !s.error && s.deg != null;
-    if (live && s.mode === "held") {                    // a hand has it: TL goes where the hand puts it
-      model.x[0] = s.deg; model.v[0] = 0; model.held[0] = true; faderLink.holding = true;
-    } else if (faderLink.holding) {                     // let go: TL carries on from there
-      model.held[0] = false; faderLink.holding = false;
+    if (fresh && s.t + 0.5 < nodeLink.t) {  // its clock went back: it restarted under us
+      nodeOff("The node restarted (reflashed or reset). Tick the box to link again."); return;
     }
-    if (s.version && faderLink.firstVersion === null) faderLink.firstVersion = s.version;
-    $("fDeg").textContent = live ? (s.deg >= 0 ? "+" : "") + s.deg.toFixed(1) : "–";
-    $("fMode").textContent = live ? ({ held: "held", follow: "moving", rest: "still", fault: "stopped (fault)" }[s.mode] || s.mode) : "–";
-    $("fLag").textContent = live && !faderLink.holding ? Math.abs(model.x[0] - s.deg).toFixed(1) : "–";
-    $("faderStatus").textContent = s.error ? s.error :
+    nodeLink.live = fresh && !nodeLink.cmds.length;
+    if (fresh) Object.assign(nodeLink, { t: s.t, tl: s.tl, q: s.q, held: !!s.held, needle: s.needle, speed: s.speed });
+    if (s.version && nodeLink.firstVersion === null) nodeLink.firstVersion = s.version;
+    $("nTL").textContent = fresh ? (s.tl >= 0 ? "+" : "") + s.tl.toFixed(1) : "–";
+    $("nNeedle").textContent = fresh ? (s.needle >= 0 ? "+" : "") + s.needle.toFixed(1) : "–";
+    $("nMode").textContent = fresh ? (s.held ? "held by a hand" : { follow: "following TL", fault: "stopped (fault)" }[s.mode] || s.mode) : "–";
+    $("nodeStatus").textContent = !s.connected || s.error ? (s.error || "not connected") :
       `on ${s.port}, firmware ${s.version || "?"}` +
-      (faderLink.firstVersion && s.version !== faderLink.firstVersion ? " (reflashed since this page opened)" : "") +
+      (nodeLink.firstVersion && s.version !== nodeLink.firstVersion ? " (reflashed since this page opened)" : "") +
+      (s.link === "waiting" ? " · waiting for this page" : "") +
       (s.note ? ` · last said: ${s.note}` : "");
   } catch (e) {
-    $("faderStatus").textContent = "Couldn't reach the editor: " + (e && e.message ? e.message : e);
-  } finally { faderLink.busy = false; }
+    $("nodeStatus").textContent = "Couldn't reach the editor: " + (e && e.message ? e.message : e);
+  } finally { nodeLink.busy = false; }
 }
-setInterval(faderTick, 50);
+setInterval(nodeTick, 50);
 
 $("preset").value = 0; $("seed").value = PRESETS[0].seed;
 restart();
