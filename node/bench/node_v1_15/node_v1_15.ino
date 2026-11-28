@@ -503,8 +503,7 @@ void ringStatus() {
   }
   Serial.printf("  %s; lines passed on %lu, bad %lu, dropped %lu\n", ringOn ? "running on the ring" : "not running",
                 (unsigned long)ringPassed, (unsigned long)ringBad, (unsigned long)ringDropped);
-  for (int k = 0; k < 4; k++) { const String &b = badLines[(badNext + k) % 4]; if (b.length()) Serial.printf("  bad at %s
-", b.c_str()); }
+  for (int k = 0; k < 4; k++) { const String &b = badLines[(badNext + k) % 4]; if (b.length()) Serial.printf("  bad at %s\n", b.c_str()); }
 }
 
 void ringService(uint32_t now) {
